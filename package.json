@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/goblinsan/gateway-api#readme",
   "dependencies": {
+    "cron-parser": "^5.5.0",
     "express": "^5.2.1",
     "multer": "^2.1.1"
   },

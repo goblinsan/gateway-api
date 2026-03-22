@@ -18,5 +18,5 @@ export function createApp(store?: WorkflowStore) {
   app.use("/api/workflows", createWorkflowRouter(workflowStore));
   app.use("/internal/workflows", createInternalWorkflowRouter(workflowStore));
 
-  return app;
+  return { app, workflowStore };
 }

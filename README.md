@@ -158,6 +158,32 @@ Internal execution hook for the control-plane scheduler. Same execution path as 
 | `createdAt` | `string` | Creation timestamp |
 | `updatedAt` | `string` | Last modification timestamp |
 
+**Supported target types:**
+
+| Target Type | Status | Description |
+|---|---|---|
+| `gateway-chat-platform.agent-turn` | Supported | Calls the chat platform `/api/chat` endpoint |
+| `legacy.openclaw.imap-triage` | Unsupported | Fails with structured error |
+| `legacy.openclaw.tts-mode` | Unsupported | Fails with structured error |
+
+For `gateway-chat-platform.agent-turn`, the workflow `input` must include:
+- `prompt` (string, required) — the message sent to the agent
+- `threadId` (string, optional) — for thread continuity
+
+The `target.ref` is used as the `agentId`.
+
+---
+
+### Scheduler
+
+An in-process scheduler automatically evaluates enabled workflows on a configurable interval. It:
+- Evaluates cron schedule strings against the current time
+- Skips disabled, sleeping, and already-running workflows
+- Prevents double-runs within the same cron due window
+- Logs execution failures to the console
+
+The scheduler starts automatically with the server unless `WORKFLOW_SCHEDULER_ENABLED=false`.
+
 ## Testing
 
 ```bash
@@ -170,3 +196,6 @@ npm test
 |---|---|---|
 | `PORT` | `3000` | Server listen port |
 | `GHP_BINARY` | `ghp` | Path to gh-project-helper binary |
+| `CHAT_PLATFORM_API_BASE_URL` | `http://localhost:3000` | Base URL for the chat platform API |
+| `WORKFLOW_SCHEDULER_ENABLED` | `true` | Enable/disable the in-process workflow scheduler |
+| `WORKFLOW_SCHEDULER_INTERVAL_MS` | `30000` | Scheduler polling interval in milliseconds |

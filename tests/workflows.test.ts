@@ -6,6 +6,8 @@ import os from "node:os";
 import { createApp } from "../src/app.js";
 import { WorkflowStore } from "../src/store/workflow-store.js";
 
+import type express from "express";
+
 const VALID_WORKFLOW = {
   name: "deploy-staging",
   schedule: "0 */6 * * *",
@@ -14,12 +16,12 @@ const VALID_WORKFLOW = {
 
 let tmpDir: string;
 let store: WorkflowStore;
-let app: ReturnType<typeof createApp>;
+let app: express.Express;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "gw-test-"));
   store = new WorkflowStore(path.join(tmpDir, "workflows.json"));
-  app = createApp(store);
+  ({ app } = createApp(store));
 });
 
 afterEach(async () => {
@@ -219,14 +221,14 @@ describe("POST /api/workflows/:id/resume", () => {
 
   it("preserves non-sleeping status on resume", async () => {
     const created = await createWorkflow();
-    // run it first so status is 'success'
+    // run it — shell target is unsupported so status becomes 'failed'
     await request(app).post(`/api/workflows/${created.body.id}/run`);
 
     const res = await request(app).post(
       `/api/workflows/${created.body.id}/resume`
     );
     expect(res.status).toBe(200);
-    expect(res.body.lastStatus).toBe("success");
+    expect(res.body.lastStatus).toBe("failed");
   });
 });
 
@@ -239,13 +241,15 @@ describe("POST /api/workflows/:id/run", () => {
       `/api/workflows/${created.body.id}/run`
     );
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe("success");
+    // shell target is unsupported in v1 — dispatcher sets failed
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error).toMatch(/unsupported/i);
     expect(res.body.startedAt).toBeDefined();
     expect(res.body.completedAt).toBeDefined();
 
     // Verify persisted state
     const get = await request(app).get(`/api/workflows/${created.body.id}`);
-    expect(get.body.lastStatus).toBe("success");
+    expect(get.body.lastStatus).toBe("failed");
     expect(get.body.lastRunAt).toBeDefined();
   });
 
@@ -272,7 +276,9 @@ describe("POST /internal/workflows/:id/execute", () => {
     );
     expect(res.status).toBe(200);
     expect(res.body.workflowId).toBe(created.body.id);
-    expect(res.body.status).toBe("success");
+    // shell target is unsupported — returns failed with error
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error).toMatch(/unsupported/i);
     expect(res.body.startedAt).toBeDefined();
     expect(res.body.completedAt).toBeDefined();
   });
@@ -305,7 +311,7 @@ describe("persistence", () => {
 
     // Create a new store pointing to the same file
     const store2 = new WorkflowStore(path.join(tmpDir, "workflows.json"));
-    const app2 = createApp(store2);
+    const { app: app2 } = createApp(store2);
     const res = await request(app2).get("/api/workflows");
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
