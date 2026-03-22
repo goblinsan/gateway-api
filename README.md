@@ -21,6 +21,18 @@ npm run build
 npm start
 ```
 
+## Docker
+
+```bash
+# Build and start
+docker compose up -d
+
+# Rebuild after changes
+docker compose up -d --build
+```
+
+The Dockerfile uses a multi-stage build that compiles the `ghp` binary from source (Go) and bundles it into the final Node.js image. Set `GITHUB_TOKEN` in your `.env` file for `ghp` authentication.
+
 ## Endpoints
 
 ### `GET /health`

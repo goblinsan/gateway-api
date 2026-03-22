@@ -3,6 +3,7 @@ import { plansToProjectRouter } from "./routes/plans-to-project.js";
 
 const app = express();
 const port = process.env.PORT ?? 3000;
+const host = process.env.HOST ?? "0.0.0.0";
 
 app.use(express.json());
 
@@ -13,5 +14,5 @@ app.get("/health", (_req, res) => {
 app.use("/plans-to-project", plansToProjectRouter);
 
 app.listen(port, () => {
-  console.log(`Gateway API listening on port ${port}`);
+  console.log(`Gateway API listening on ${host}:${port}`);
 });
