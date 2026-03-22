@@ -1,0 +1,391 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "8b2e8357-8265-46db-aeec-814937992058",
+      "name": "project-health-daily",
+      "description": "Daily health check on Kulrs and Vizail",
+      "enabled": true,
+      "createdAtMs": 1772988746161,
+      "updatedAtMs": 1774181400040,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "main",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "systemEvent",
+        "text": "project-health-check: Read /home/momito/.openclaw/workspace/PROJECTS.md. For each endpoint, make an HTTP GET request and capture status code and response time. Evaluate thresholds: Kulrs /browse warn>2000ms alert>5000ms; Kulrs API /health warn>1500ms alert>3000ms; Vizail endpoints warn>1500ms alert>3000ms. Write/append structured run data to /home/momito/.openclaw/workspace/memory/site-health-history.json with timestamp, endpoint, status, ms, health, threshold breaches. Keep only the latest 500 runs total to cap file size. Output a health table (Green/Yellow/Red), changes from previous run, and recommended actions if degraded. Then send the summary to Jimbo via Telegram (chat ID 8681861530)."
+      },
+      "state": {
+        "nextRunAtMs": 1774267200000,
+        "lastRunAtMs": 1774180800021,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 600019,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 1,
+        "lastError": "cron: job execution timed out"
+      }
+    },
+    {
+      "id": "6dd7a6e0-b1de-4bf2-951b-23b4cd76495a",
+      "name": "training-weekly",
+      "description": "Monday morning weekly training plan",
+      "enabled": true,
+      "createdAtMs": 1772988817341,
+      "updatedAtMs": 1773659033705,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * 1",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "main",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "systemEvent",
+        "text": "training-weekly-plan: Read /home/momito/.openclaw/workspace/TRAINING.md. Today is Monday. Build this week's triathlon training plan for Jimbo. Race: St. Anthony's Olympic Triathlon, April 26 2026, St. Pete FL. Output: daily schedule Mon-Sun (no Wednesday), key sessions and purpose, minimum viable version if busy, recovery guidance, red flags. Send to Jimbo via Telegram (chat ID 8681861530)."
+      },
+      "state": {
+        "nextRunAtMs": 1774263600000,
+        "lastRunAtMs": 1773658800034,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 233671,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 0
+      }
+    },
+    {
+      "id": "f622d64f-8493-4eb5-aa11-deedca3ad4f0",
+      "name": "chief-of-staff-daily",
+      "description": "Daily morning briefing from Chief of Staff",
+      "enabled": true,
+      "createdAtMs": 1772988841983,
+      "updatedAtMs": 1774177687198,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "main",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "systemEvent",
+        "text": "daily-brief: Read /home/momito/.openclaw/workspace/PROJECTS.md and /home/momito/.openclaw/workspace/TRAINING.md. Produce Jimbo's daily brief: 1) Top 3 priorities for today, 2) Project health risks for Kulrs/Vizail, 3) Today's training session per the weekly plan (skip if Wednesday), 4) Recommended actions (max 5), 5) The one thing to do today if nothing else. Be Bruvie-D — direct, mildly fatalistic, no filler."
+      },
+      "state": {
+        "nextRunAtMs": 1774263600000,
+        "lastRunAtMs": 1774177200025,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 487173,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 0
+      }
+    },
+    {
+      "id": "05117172-3606-4832-8f91-8536c9b504a7",
+      "name": "checkin-evening",
+      "description": "Evening wrap-up and tomorrow prep",
+      "enabled": true,
+      "createdAtMs": 1772989047078,
+      "updatedAtMs": 1774139430853,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 20 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "You are Bruvie-D, Jimbo's mildly sarcastic but genuinely encouraging assistant. It's 8:30pm. End of day check-in. Ask Jimbo to log what he actually got done today (not what he meant to do — what he did). Remind him to set one clear intention for tomorrow. Keep it brief, warm-but-fatalistic, Marvin-esque.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "8681861530"
+      },
+      "state": {
+        "nextRunAtMs": 1774225800000,
+        "lastRunAtMs": 1774139400024,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 30829,
+        "lastDelivered": true,
+        "lastDeliveryStatus": "delivered",
+        "consecutiveErrors": 0
+      }
+    },
+    {
+      "id": "920acf5a-bfa9-4bde-9d51-17b54610f764",
+      "name": "checkin-midday",
+      "description": "Midday progress check-in",
+      "enabled": true,
+      "createdAtMs": 1772989074999,
+      "updatedAtMs": 1774110626818,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 12 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "You are Bruvie-D, Jimbo's mildly sarcastic but genuinely encouraging assistant. It's midday. Check in with Jimbo. Remind him to log what he's accomplished so far today. Ask if he's on track with today's top priorities. Keep it short, punchy, and Marvin-esque — fatalistic but rooting for him. One or two lines max.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "8681861530"
+      },
+      "state": {
+        "nextRunAtMs": 1774197000000,
+        "lastRunAtMs": 1774110600020,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 26798,
+        "lastDeliveryStatus": "delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": true
+      }
+    },
+    {
+      "id": "4fa91a13-9619-4835-95cb-11f603f97952",
+      "name": "checkin-afternoon",
+      "description": "Afternoon wind-down nudge",
+      "enabled": true,
+      "createdAtMs": 1772989096863,
+      "updatedAtMs": 1774126860044,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 17 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "You are Bruvie-D, Jimbo's mildly sarcastic but genuinely encouraging assistant. It's 5pm. Check in with Jimbo. Nudge him to record progress before the evening hits and things get chaotic. Remind him what the day's goal was and ask if he nailed it. Keep it short, dry, and Marvin-esque.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "8681861530"
+      },
+      "state": {
+        "nextRunAtMs": 1774213200000,
+        "lastRunAtMs": 1774126800020,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 60024,
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 5,
+        "lastError": "cron: job execution timed out"
+      }
+    },
+    {
+      "id": "1f4a3a98-2f66-4f2a-a708-6d5ec4f43f0e",
+      "name": "yahoo-triage-quarter-hour",
+      "description": "Quarter-hour Yahoo inbox triage into priority folders",
+      "enabled": false,
+      "createdAtMs": 1773413002767,
+      "updatedAtMs": 1773606300058,
+      "schedule": {
+        "kind": "cron",
+        "expr": "*/15 6-22 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "main",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "systemEvent",
+        "text": "yahoo-triage: Run Yahoo IMAP inbox triage using credentials from ~/.openclaw/credentials/yahoo.env. Classify recent inbox messages into folders: 01_Security, 02_Receipts_Orders, 03_School_Kids, 04_Finance, 05_Platform_Dev, 90_Newsletters_Promos. Create folders if missing. Process only recent messages (last 120) for speed. Move matches out of INBOX (copy then delete+expunge). Write run summary JSON to /home/momito/.openclaw/workspace/memory/yahoo-triage-last.json including moved_count and samples. Do not send chat output unless there is an error."
+      },
+      "state": {
+        "lastRunAtMs": 1773605700044,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 600014,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 1,
+        "lastError": "cron: job execution timed out"
+      }
+    },
+    {
+      "id": "tts-tts-on-morning",
+      "name": "tts-on-morning",
+      "description": "Auto set TTS always",
+      "enabled": true,
+      "createdAtMs": 1773413294537,
+      "updatedAtMs": 1774177738626,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Set TTS auto mode to 'always' for this host/session by updating ~/.openclaw/settings/tts.json (create file/dirs if missing). Write JSON with tts.auto='always', preserve existing tts.provider/maxLength/summarize if present. Do this silently; no chat output unless there is an error.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "nextRunAtMs": 1774263600000,
+        "lastRunAtMs": 1774177687198,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 51428,
+        "lastDeliveryStatus": "not-delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "tts-tts-off-morning",
+      "name": "tts-off-morning",
+      "description": "Auto set TTS off",
+      "enabled": true,
+      "createdAtMs": 1773413294537,
+      "updatedAtMs": 1774184460040,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Set TTS auto mode to 'off' for this host/session by updating ~/.openclaw/settings/tts.json (create file/dirs if missing). Write JSON with tts.auto='off', preserve existing tts.provider/maxLength/summarize if present. Do this silently; no chat output unless there is an error.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "nextRunAtMs": 1774270800000,
+        "lastRunAtMs": 1774184400016,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 60024,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 1,
+        "lastError": "cron: job execution timed out"
+      }
+    },
+    {
+      "id": "tts-tts-on-midday",
+      "name": "tts-on-midday",
+      "description": "Auto set TTS always",
+      "enabled": true,
+      "createdAtMs": 1773413294537,
+      "updatedAtMs": 1774108825635,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 12 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Set TTS auto mode to 'always' for this host/session by updating ~/.openclaw/settings/tts.json (create file/dirs if missing). Write JSON with tts.auto='always', preserve existing tts.provider/maxLength/summarize if present. Do this silently; no chat output unless there is an error.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "nextRunAtMs": 1774195200000,
+        "lastRunAtMs": 1774108800023,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 25612,
+        "lastDeliveryStatus": "not-delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "tts-tts-off-evening",
+      "name": "tts-off-evening",
+      "description": "Auto set TTS off",
+      "enabled": true,
+      "createdAtMs": 1773413294537,
+      "updatedAtMs": 1774123260050,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 16 * * *",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Set TTS auto mode to 'off' for this host/session by updating ~/.openclaw/settings/tts.json (create file/dirs if missing). Write JSON with tts.auto='off', preserve existing tts.provider/maxLength/summarize if present. Do this silently; no chat output unless there is an error.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "nextRunAtMs": 1774209600000,
+        "lastRunAtMs": 1774123200023,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 60027,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 1,
+        "lastError": "cron: job execution timed out"
+      }
+    },
+    {
+      "id": "7c6e4f2f-1d1d-4a0d-a3f1-5b9a3e2b8c77",
+      "name": "budget-reminder-pull-amex-csv",
+      "description": "Friday morning reminder to export AmEx CSV for budget review",
+      "enabled": true,
+      "createdAtMs": 1773424730043,
+      "updatedAtMs": 1774008642279,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8 * * 5",
+        "tz": "America/New_York"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "It is Friday morning. Send Jimbo a short reminder to export the latest AmEx transactions CSV and save it to memory/amex-transactions.csv so the weekly budget scorecard can run. Keep it concise.",
+        "timeoutSeconds": 60
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "8681861530"
+      },
+      "state": {
+        "nextRunAtMs": 1774612800000,
+        "lastRunAtMs": 1774008600031,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 42248,
+        "lastError": "Context size has been exceeded.",
+        "lastDelivered": true,
+        "lastDeliveryStatus": "delivered",
+        "consecutiveErrors": 1
+      }
+    }
+  ]
+}
