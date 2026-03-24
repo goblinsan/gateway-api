@@ -1,0 +1,24 @@
+name: Deploy On Merge
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: gateway-api-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on:
+      - self-hosted
+      - gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run build
+      - run: /opt/gateway-control-plane/deploy/bin/deploy-app.sh --config /opt/gateway-control-plane/configs/gateway.config.json --app gateway-api --revision "${GITHUB_SHA}"
