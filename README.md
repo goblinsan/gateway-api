@@ -31,7 +31,7 @@ docker compose up -d
 docker compose up -d --build
 ```
 
-The Dockerfile uses a multi-stage build that compiles the `ghp` binary from source (Go) and bundles it into the final Node.js image. Set `GITHUB_TOKEN` in your `.env` file for `ghp` authentication.
+The Dockerfile uses a multi-stage build that compiles the `ghp` binary from source (Go) and bundles it into the final Node.js image. In production, the container also checks for a host-managed helper at `/opt/host-tools/ghp` so the gateway can pick up fresh `gh-project-helper` builds without rebuilding the API image. Set `GITHUB_TOKEN` in your `.env` file for `ghp` authentication.
 
 ## Endpoints
 
@@ -225,6 +225,7 @@ npm test
 |---|---|---|
 | `PORT` | `3000` | Server listen port |
 | `GHP_BINARY` | `ghp` | Path to gh-project-helper binary |
+| `GHP_HOST_BIN_DIR` | `/home/jimmothy/.local/bin` | Host directory mounted into the container for a runner-managed `ghp` override |
 | `CHAT_PLATFORM_API_BASE_URL` | `http://localhost:3000` | Base URL for the chat platform API |
 | `WORKFLOW_SCHEDULER_ENABLED` | `true` | Enable/disable the in-process workflow scheduler |
 | `WORKFLOW_SCHEDULER_INTERVAL_MS` | `30000` | Scheduler polling interval in milliseconds |

@@ -3,6 +3,7 @@ import multer from "multer";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -21,7 +22,8 @@ const upload = multer({
   },
 });
 
-const GHP_BINARY = process.env.GHP_BINARY ?? "ghp";
+const HOST_GHP_BINARY = "/opt/host-tools/ghp";
+
 
 interface PreflightResponse {
   status: string;
@@ -56,8 +58,22 @@ function parseJsonOutput<T>(stdout: string): T {
   return JSON.parse(stdout) as T;
 }
 
+async function resolveGhpBinary(): Promise<string> {
+  if (process.env.GHP_BINARY?.trim()) {
+    return process.env.GHP_BINARY.trim();
+  }
+
+  try {
+    await fs.access(HOST_GHP_BINARY, fsConstants.X_OK);
+    return HOST_GHP_BINARY;
+  } catch {
+    return "ghp";
+  }
+}
+
 async function runGhp(args: string[]) {
-  return execFileAsync(GHP_BINARY, args, {
+  const binary = await resolveGhpBinary();
+  return execFileAsync(binary, args, {
     env: { ...process.env },
     timeout: PREVIEW_TIMEOUT_MS,
   });

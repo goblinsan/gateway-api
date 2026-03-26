@@ -9,6 +9,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+    volumes:
+      - ${GHP_HOST_BIN_DIR:-/home/jimmothy/.local/bin}:/opt/host-tools:ro
     ports:
       - "${HOST_PORT:-3001}:3000"
     healthcheck:
