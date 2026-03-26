@@ -47,14 +47,43 @@ Validates a plan YAML file against the `ghp` schema.
 - **200**: `{ "valid": true, "output": "..." }`
 - **422**: `{ "valid": false, "error": "..." }`
 
+### `POST /plans-to-project/preflight`
+
+Runs a non-mutating repo-resolution preflight for a plan YAML file.
+
+- **Body**: `multipart/form-data` with a `plan` field containing a `.yaml`/`.yml` file
+- **200**: Structured JSON with one of these statuses:
+  - `ready`
+  - `invalid`
+  - `repo_resolution_required`
+  - `create_repo_confirmation_required`
+
+Use this from a Custom GPT or other client before applying when you need a safer approval path.
+
 ### `POST /plans-to-project/apply`
 
 Applies a plan YAML file to create GitHub project milestones, epics, and issues.
 
 - **Body**: `multipart/form-data` with a `plan` field containing a `.yaml`/`.yml` file
+- **Optional field**: `repositoryOverride=owner/repo` to force apply against an existing exact repo chosen during preflight
+- **Optional field**: `createRepoIfMissing=true` to allow creating the requested repo when no similar matches were found during preflight
 - **Query**: `?dryRun=true` to preview without applying
 - **200**: `{ "success": true, "output": "...", "warnings": "..." }`
 - **500**: `{ "success": false, "error": "..." }`
+
+### `POST /plans-to-project/plan`
+
+One-call orchestration endpoint intended for a Custom GPT or other planning client.
+
+Behavior:
+
+- Runs the same preflight step first.
+- If the repository is an exact match, it applies immediately.
+- If similar repositories are found, it returns `409` with `stage: "repo_resolution_required"` and the preflight payload.
+- If no similar repositories are found, it returns `409` with `stage: "create_repo_confirmation_required"` unless `createRepoIfMissing=true` is supplied.
+- If the plan is invalid, it returns `422` with `stage: "preflight"`.
+
+This lets the client keep the human-in-the-loop confirmation step outside the API while still using a single endpoint for the happy path.
 
 Requires `ghp` binary on `PATH` (or set `GHP_BINARY` env var). GitHub auth is handled by `ghp` via `GITHUB_TOKEN` env var or `~/.gh-project-helper.yaml`.
 
