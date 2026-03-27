@@ -39,6 +39,10 @@ The Dockerfile uses a multi-stage build that compiles the `ghp` binary from sour
 
 Returns `{ "status": "ok" }`.
 
+### `GET /policy`
+
+Returns a public HTML privacy policy page for `api.jimmothy.site`. This endpoint is intentionally unprotected so it can be referenced by external integrations such as GPT Actions.
+
 ### `POST /plans-to-project/validate`
 
 Validates a plan YAML file against the `ghp` schema. All `/plans-to-project/*` and `/api/workflows/*` endpoints require an API key when `GATEWAY_API_KEY` is configured. Present it with either `X-API-Key: <key>` or `Authorization: Bearer <key>`.
