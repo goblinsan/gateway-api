@@ -41,7 +41,7 @@ Returns `{ "status": "ok" }`.
 
 ### `POST /plans-to-project/validate`
 
-Validates a plan YAML file against the `ghp` schema. All `/plans-to-project/*` endpoints require an API key when `GATEWAY_API_KEY` is configured. Present it with either `X-API-Key: <key>` or `Authorization: Bearer <key>`.
+Validates a plan YAML file against the `ghp` schema. All `/plans-to-project/*` and `/api/workflows/*` endpoints require an API key when `GATEWAY_API_KEY` is configured. Present it with either `X-API-Key: <key>` or `Authorization: Bearer <key>`.
 
 - **Body**: `multipart/form-data` with a `plan` field containing a `.yaml`/`.yml` file
 - **200**: `{ "valid": true, "output": "..." }`

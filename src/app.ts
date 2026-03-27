@@ -5,7 +5,7 @@ import { createWorkflowRouter } from "./routes/workflows.js";
 import { createInternalWorkflowRouter } from "./routes/internal-workflows.js";
 import { WorkflowStore } from "./store/workflow-store.js";
 
-function getConfiguredPlanApiKey(): string | undefined {
+function getConfiguredGatewayApiKey(): string | undefined {
   const value = process.env.GATEWAY_API_KEY?.trim();
   return value ? value : undefined;
 }
@@ -38,8 +38,8 @@ function apiKeysMatch(expected: string, presented: string): boolean {
   return crypto.timingSafeEqual(expectedBuffer, presentedBuffer);
 }
 
-function requirePlanApiKey(req: Request, res: Response, next: NextFunction): void {
-  const configuredKey = getConfiguredPlanApiKey();
+function requireGatewayApiKey(req: Request, res: Response, next: NextFunction): void {
+  const configuredKey = getConfiguredGatewayApiKey();
   if (!configuredKey) {
     next();
     return;
@@ -69,8 +69,8 @@ export function createApp(store?: WorkflowStore) {
     res.json({ status: "ok" });
   });
 
-  app.use("/plans-to-project", requirePlanApiKey, plansToProjectRouter);
-  app.use("/api/workflows", createWorkflowRouter(workflowStore));
+  app.use("/plans-to-project", requireGatewayApiKey, plansToProjectRouter);
+  app.use("/api/workflows", requireGatewayApiKey, createWorkflowRouter(workflowStore));
   app.use("/internal/workflows", createInternalWorkflowRouter(workflowStore));
 
   return { app, workflowStore };

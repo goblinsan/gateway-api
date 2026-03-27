@@ -85,6 +85,16 @@ describe("plans-to-project", () => {
     expect(res.body.error).toBe("Missing API key");
   });
 
+  it("rejects workflow requests without an API key when configured", async () => {
+    process.env.GATEWAY_API_KEY = "super-secret";
+    await loadApp();
+
+    const res = await request(app).get("/api/workflows");
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Missing API key");
+  });
+
   it("accepts x-api-key for protected plan endpoints", async () => {
     process.env.GATEWAY_API_KEY = "super-secret";
     await loadApp();
