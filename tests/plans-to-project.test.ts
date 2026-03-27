@@ -58,6 +58,7 @@ beforeEach(async () => {
   process.env.GHP_TEST_LOG = logPath;
   delete process.env.GHP_TEST_PREFLIGHT_JSON;
   delete process.env.GHP_TEST_APPLY_STDOUT;
+  delete process.env.GATEWAY_API_KEY;
   await loadApp();
 });
 
@@ -67,10 +68,36 @@ afterEach(async () => {
   delete process.env.GHP_TEST_LOG;
   delete process.env.GHP_TEST_PREFLIGHT_JSON;
   delete process.env.GHP_TEST_APPLY_STDOUT;
+  delete process.env.GATEWAY_API_KEY;
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
 describe("plans-to-project", () => {
+  it("rejects requests without an API key when configured", async () => {
+    process.env.GATEWAY_API_KEY = "super-secret";
+    await loadApp();
+
+    const res = await request(app)
+      .post("/plans-to-project/preflight")
+      .attach("plan", Buffer.from("project: My Project\nrepository: owner/repo\n"), "plan.yaml");
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Missing API key");
+  });
+
+  it("accepts x-api-key for protected plan endpoints", async () => {
+    process.env.GATEWAY_API_KEY = "super-secret";
+    await loadApp();
+
+    const res = await request(app)
+      .post("/plans-to-project/preflight")
+      .set("X-API-Key", "super-secret")
+      .attach("plan", Buffer.from("project: My Project\nrepository: owner/repo\n"), "plan.yaml");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ready");
+  });
+
   it("returns structured preflight output", async () => {
     process.env.GHP_TEST_PREFLIGHT_JSON = JSON.stringify({
       status: "repo_resolution_required",

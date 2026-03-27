@@ -41,7 +41,7 @@ Returns `{ "status": "ok" }`.
 
 ### `POST /plans-to-project/validate`
 
-Validates a plan YAML file against the `ghp` schema.
+Validates a plan YAML file against the `ghp` schema. All `/plans-to-project/*` endpoints require an API key when `GATEWAY_API_KEY` is configured. Present it with either `X-API-Key: <key>` or `Authorization: Bearer <key>`.
 
 - **Body**: `multipart/form-data` with a `plan` field containing a `.yaml`/`.yml` file
 - **200**: `{ "valid": true, "output": "..." }`
@@ -224,6 +224,7 @@ npm test
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3000` | Server listen port |
+| `GATEWAY_API_KEY` | unset | Optional API key for `/plans-to-project/*` endpoints; accepted via `X-API-Key` or `Authorization: Bearer` |
 | `GHP_BINARY` | `ghp` | Path to gh-project-helper binary |
 | `GHP_HOST_BIN_DIR` | `/home/jimmothy/.local/bin` | Host directory mounted into the container for a runner-managed `ghp` override |
 | `CHAT_PLATFORM_API_BASE_URL` | `http://localhost:3000` | Base URL for the chat platform API |
