@@ -125,6 +125,31 @@ describe("plans-to-project", () => {
     expect(log).toContain("preflight -f");
   });
 
+  it("passes boolean createRepoIfMissing through for plan-from-text", async () => {
+    process.env.GHP_TEST_PREFLIGHT_JSON = JSON.stringify({
+      status: "create_repo_confirmation_required",
+      repository: {
+        requested: "owner/new-repo",
+        exactMatch: false,
+        similar: [],
+      },
+    });
+    process.env.GHP_TEST_APPLY_STDOUT = "created repo";
+
+    const res = await request(app)
+      .post("/plans-to-project/plan-from-text")
+      .send({
+        planYaml: "project: My Project\nrepository: owner/new-repo\n",
+        createRepoIfMissing: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const log = await fs.readFile(logPath, "utf8");
+    expect(log).toContain("--create-repo-if-missing");
+  });
+
   it("applies plan-from-text with repository override", async () => {
     process.env.GHP_TEST_PREFLIGHT_JSON = JSON.stringify({
       status: "repo_resolution_required",

@@ -50,6 +50,12 @@ interface PlanTextRequestBody {
 export const plansToProjectRouter = Router();
 
 function parseTruthy(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value === 1;
+  }
   if (typeof value !== "string") {
     return false;
   }
