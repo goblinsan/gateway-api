@@ -60,6 +60,24 @@ Runs a non-mutating repo-resolution preflight for a plan YAML file.
 
 Use this from a Custom GPT or other client before applying when you need a safer approval path.
 
+### `POST /plans-to-project/preflight-from-text`
+
+Runs the same non-mutating repo-resolution preflight, but accepts the plan as JSON text instead of a file upload.
+
+- **Body**:
+
+```json
+{
+  "planYaml": "project: My Project\nrepository: owner/repo\n"
+}
+```
+
+- **200**: Structured JSON with one of these statuses:
+  - `ready`
+  - `invalid`
+  - `repo_resolution_required`
+  - `create_repo_confirmation_required`
+
 ### `POST /plans-to-project/apply`
 
 Applies a plan YAML file to create GitHub project milestones, epics, and issues.
@@ -88,6 +106,28 @@ This lets the client keep the human-in-the-loop confirmation step outside the AP
 Requires `ghp` binary on `PATH` (or set `GHP_BINARY` env var). GitHub auth is handled by `ghp` via `GITHUB_TOKEN` env var or `~/.gh-project-helper.yaml`.
 
 ---
+
+### `POST /plans-to-project/plan-from-text`
+
+JSON/text equivalent of `/plans-to-project/plan`, intended for GPT Actions and other clients that generate YAML in-memory.
+
+- **Body**:
+
+```json
+{
+  "planYaml": "project: My Project\nrepository: owner/repo\n",
+  "repositoryOverride": "owner/similar-repo",
+  "createRepoIfMissing": false
+}
+```
+
+Behavior matches `/plans-to-project/plan`:
+
+- Runs preflight first.
+- Returns `409` for `repo_resolution_required` unless `repositoryOverride` is supplied.
+- Returns `409` for `create_repo_confirmation_required` unless `createRepoIfMissing=true` is supplied.
+- Returns `422` if the plan is invalid.
+- Applies immediately on the exact-match happy path.
 
 ### Workflows
 

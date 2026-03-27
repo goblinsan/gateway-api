@@ -41,6 +41,12 @@ interface PreflightResponse {
 
 const PREVIEW_TIMEOUT_MS = 120_000;
 
+interface PlanTextRequestBody {
+  planYaml?: unknown;
+  repositoryOverride?: unknown;
+  createRepoIfMissing?: unknown;
+}
+
 export const plansToProjectRouter = Router();
 
 function parseTruthy(value: unknown): boolean {
@@ -84,8 +90,37 @@ async function runPreflight(planPath: string): Promise<PreflightResponse> {
   return parseJsonOutput<PreflightResponse>(stdout);
 }
 
-function buildApplyArgs(req: Request): string[] {
-  const args = ["apply", "-f", req.file!.path];
+function getPlanYamlFromBody(body: PlanTextRequestBody | undefined): string | undefined {
+  return typeof body?.planYaml === "string" && body.planYaml.trim() ? body.planYaml : undefined;
+}
+
+async function writePlanYamlTempFile(planYaml: string): Promise<string> {
+  const filePath = path.join(
+    os.tmpdir(),
+    `gateway-plan-${Date.now()}-${Math.random().toString(36).slice(2)}.yaml`,
+  );
+  await fs.writeFile(filePath, planYaml, "utf8");
+  return filePath;
+}
+
+function sendPreflightError(res: Response, err: unknown): void {
+  const execErr = err as { stderr?: string; stdout?: string; message?: string };
+  const stdout = execErr.stdout?.trim();
+  if (stdout) {
+    try {
+      res.status(200).json(parseJsonOutput<PreflightResponse>(stdout));
+      return;
+    } catch {
+      // fall through to generic error handling
+    }
+  }
+  res.status(500).json({
+    error: execErr.stderr?.trim() || execErr.message,
+  });
+}
+
+function buildApplyArgs(planPath: string, req: Request): string[] {
+  const args = ["apply", "-f", planPath];
   if (req.query.dryRun === "true") {
     args.push("--dry-run");
   }
@@ -139,21 +174,31 @@ plansToProjectRouter.post(
       const report = await runPreflight(req.file.path);
       res.json(report);
     } catch (err: unknown) {
-      const execErr = err as { stderr?: string; stdout?: string; message?: string };
-      const stdout = execErr.stdout?.trim();
-      if (stdout) {
-        try {
-          res.status(200).json(parseJsonOutput<PreflightResponse>(stdout));
-          return;
-        } catch {
-          // fall through to generic error handling
-        }
-      }
-      res.status(500).json({
-        error: execErr.stderr?.trim() || execErr.message,
-      });
+      sendPreflightError(res, err);
     } finally {
       await fs.unlink(req.file.path).catch(() => {});
+    }
+  }
+);
+
+plansToProjectRouter.post(
+  "/preflight-from-text",
+  async (req: Request<unknown, unknown, PlanTextRequestBody>, res: Response): Promise<void> => {
+    const planYaml = getPlanYamlFromBody(req.body);
+    if (!planYaml) {
+      res.status(400).json({ error: "planYaml is required" });
+      return;
+    }
+
+    const planPath = await writePlanYamlTempFile(planYaml);
+
+    try {
+      const report = await runPreflight(planPath);
+      res.json(report);
+    } catch (err: unknown) {
+      sendPreflightError(res, err);
+    } finally {
+      await fs.unlink(planPath).catch(() => {});
     }
   }
 );
@@ -167,7 +212,7 @@ plansToProjectRouter.post(
       return;
     }
 
-    const args = buildApplyArgs(req);
+    const args = buildApplyArgs(req.file.path, req);
 
     try {
       const { stdout, stderr } = await runGhp(args);
@@ -188,6 +233,56 @@ plansToProjectRouter.post(
   }
 );
 
+async function handlePlanRequest(planPath: string, req: Request<any, any, any, any>, res: Response): Promise<void> {
+  try {
+    const preflight = await runPreflight(planPath);
+    if (preflight.status === "invalid") {
+      res.status(422).json({
+        success: false,
+        stage: "preflight",
+        preflight,
+      });
+      return;
+    }
+
+    const repositoryOverride = safeTrim(req.body?.repositoryOverride);
+    const createRepoIfMissing = parseTruthy(req.body?.createRepoIfMissing) || req.query.createRepoIfMissing === "true";
+
+    if (preflight.status === "repo_resolution_required" && !repositoryOverride) {
+      res.status(409).json({
+        success: false,
+        stage: "repo_resolution_required",
+        preflight,
+      });
+      return;
+    }
+
+    if (preflight.status === "create_repo_confirmation_required" && !createRepoIfMissing) {
+      res.status(409).json({
+        success: false,
+        stage: "create_repo_confirmation_required",
+        preflight,
+      });
+      return;
+    }
+
+    const { stdout, stderr } = await runGhp(buildApplyArgs(planPath, req));
+    res.json({
+      success: true,
+      stage: "apply",
+      preflight,
+      output: stdout.trim(),
+      warnings: stderr.trim() || undefined,
+    });
+  } catch (err: unknown) {
+    const execErr = err as { stderr?: string; message?: string };
+    res.status(500).json({
+      success: false,
+      error: execErr.stderr?.trim() || execErr.message,
+    });
+  }
+}
+
 plansToProjectRouter.post(
   "/plan",
   upload.single("plan"),
@@ -198,53 +293,28 @@ plansToProjectRouter.post(
     }
 
     try {
-      const preflight = await runPreflight(req.file.path);
-      if (preflight.status === "invalid") {
-        res.status(422).json({
-          success: false,
-          stage: "preflight",
-          preflight,
-        });
-        return;
-      }
-
-      const repositoryOverride = safeTrim(req.body?.repositoryOverride);
-      const createRepoIfMissing = parseTruthy(req.body?.createRepoIfMissing) || req.query.createRepoIfMissing === "true";
-
-      if (preflight.status === "repo_resolution_required" && !repositoryOverride) {
-        res.status(409).json({
-          success: false,
-          stage: "repo_resolution_required",
-          preflight,
-        });
-        return;
-      }
-
-      if (preflight.status === "create_repo_confirmation_required" && !createRepoIfMissing) {
-        res.status(409).json({
-          success: false,
-          stage: "create_repo_confirmation_required",
-          preflight,
-        });
-        return;
-      }
-
-      const { stdout, stderr } = await runGhp(buildApplyArgs(req));
-      res.json({
-        success: true,
-        stage: "apply",
-        preflight,
-        output: stdout.trim(),
-        warnings: stderr.trim() || undefined,
-      });
-    } catch (err: unknown) {
-      const execErr = err as { stderr?: string; message?: string };
-      res.status(500).json({
-        success: false,
-        error: execErr.stderr?.trim() || execErr.message,
-      });
+      await handlePlanRequest(req.file.path, req, res);
     } finally {
       await fs.unlink(req.file.path).catch(() => {});
+    }
+  }
+);
+
+plansToProjectRouter.post(
+  "/plan-from-text",
+  async (req: Request<unknown, unknown, PlanTextRequestBody>, res: Response): Promise<void> => {
+    const planYaml = getPlanYamlFromBody(req.body);
+    if (!planYaml) {
+      res.status(400).json({ error: "planYaml is required" });
+      return;
+    }
+
+    const planPath = await writePlanYamlTempFile(planYaml);
+
+    try {
+      await handlePlanRequest(planPath, req, res);
+    } finally {
+      await fs.unlink(planPath).catch(() => {});
     }
   }
 );

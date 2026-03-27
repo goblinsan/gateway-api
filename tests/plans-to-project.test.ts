@@ -108,6 +108,49 @@ describe("plans-to-project", () => {
     expect(res.body.status).toBe("ready");
   });
 
+  it("accepts preflight-from-text payloads", async () => {
+    process.env.GHP_TEST_PREFLIGHT_JSON = JSON.stringify({
+      status: "ready",
+      repository: { requested: "owner/repo", exactMatch: true },
+    });
+
+    const res = await request(app)
+      .post("/plans-to-project/preflight-from-text")
+      .send({ planYaml: "project: My Project\nrepository: owner/repo\n" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ready");
+
+    const log = await fs.readFile(logPath, "utf8");
+    expect(log).toContain("preflight -f");
+  });
+
+  it("applies plan-from-text with repository override", async () => {
+    process.env.GHP_TEST_PREFLIGHT_JSON = JSON.stringify({
+      status: "repo_resolution_required",
+      repository: {
+        requested: "owner/mispelled-repo",
+        exactMatch: false,
+        similar: [{ fullName: "owner/similar-repo", description: "similar" }],
+      },
+    });
+    process.env.GHP_TEST_APPLY_STDOUT = "apply ok";
+
+    const res = await request(app)
+      .post("/plans-to-project/plan-from-text")
+      .send({
+        planYaml: "project: My Project\nrepository: owner/mispelled-repo\n",
+        repositoryOverride: "owner/similar-repo",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.output).toBe("apply ok");
+
+    const log = await fs.readFile(logPath, "utf8");
+    expect(log).toContain("--repository-override owner/similar-repo");
+  });
+
   it("returns structured preflight output", async () => {
     process.env.GHP_TEST_PREFLIGHT_JSON = JSON.stringify({
       status: "repo_resolution_required",
