@@ -133,6 +133,94 @@ Behavior matches `/plans-to-project/plan`:
 - Returns `422` if the plan is invalid.
 - Applies immediately on the exact-match happy path.
 
+### `POST /api/assets`
+
+Uploads one or more binary or image assets into a GitHub repository via the GitHub Contents API.
+
+- **Auth**: requires `X-API-Key` or `Authorization: Bearer` when `GATEWAY_API_KEY` is configured
+- **Body**: `multipart/form-data`
+
+| Field | Required | Description |
+|---|---|---|
+| `assets` | ✅ | One or more files attached under the `assets` field |
+| `repository` | ✅ | Target GitHub repository in `owner/repo` format |
+| `destinationPath` | ✅ | Relative directory path inside the repository (e.g. `docs/images`) |
+| `branch` | optional | Target branch (default: `main`) |
+| `overwrite` | optional | `true` to replace existing files (default: `false`) |
+| `commitMessage` | optional | Git commit message (default: `Upload assets`) |
+
+**Status codes**
+
+| Status | Meaning |
+|---|---|
+| `200` | All files were written successfully |
+| `207` | Mixed results — at least one file succeeded, was skipped, or failed |
+| `400` | Invalid or missing request fields |
+| `413` | One or more files exceed the 10 MB limit |
+| `422` | Every file was rejected (e.g. all had unsupported extensions) |
+
+**Response shape**
+
+```json
+{
+  "repository": "owner/repo",
+  "branch": "main",
+  "destinationPath": "docs/images",
+  "results": [
+    {
+      "filename": "logo.png",
+      "path": "docs/images/logo.png",
+      "size": 4096,
+      "status": "created",
+      "sha": "a1b2c3d4..."
+    }
+  ]
+}
+```
+
+Each result entry has a `status` of `created`, `updated`, `skipped`, `rejected`, or `failed`. Entries with errors include an `error` code and a human-readable `message`.
+
+**Example — upload a PNG image**
+
+```bash
+curl -X POST https://api.jimmothy.site/api/assets \
+  -H "X-API-Key: $GATEWAY_API_KEY" \
+  -F "repository=owner/my-project" \
+  -F "destinationPath=assets/images" \
+  -F "assets=@./logo.png"
+```
+
+**Example — upload a WASM binary with a custom branch and commit message**
+
+```bash
+curl -X POST https://api.jimmothy.site/api/assets \
+  -H "X-API-Key: $GATEWAY_API_KEY" \
+  -F "repository=owner/my-project" \
+  -F "destinationPath=dist" \
+  -F "branch=release/v2" \
+  -F "commitMessage=chore: add compiled WASM module" \
+  -F "overwrite=true" \
+  -F "assets=@./engine.wasm"
+```
+
+**Example — upload multiple assets in one request**
+
+```bash
+curl -X POST https://api.jimmothy.site/api/assets \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  -F "repository=owner/my-project" \
+  -F "destinationPath=docs/assets" \
+  -F "assets=@./diagram.png" \
+  -F "assets=@./data.csv" \
+  -F "assets=@./report.pdf"
+```
+
+**Supported file types**
+
+Images (`.apng`, `.avif`, `.bmp`, `.gif`, `.ico`, `.jpeg`, `.jpg`, `.png`, `.svg`, `.tiff`, `.webp`), fonts (`.eot`, `.otf`, `.ttf`, `.woff`, `.woff2`), documents/data (`.csv`, `.json`, `.md`, `.pdf`, `.txt`, `.xml`, `.yaml`, `.yml`), web (`.css`, `.htm`, `.html`, `.js`, `.map`, `.ts`), audio/video (`.aac`, `.flac`, `.m4a`, `.mp3`, `.mp4`, `.ogg`, `.wav`, `.webm`), and archives/binaries (`.gz`, `.tar`, `.wasm`, `.zip`). Maximum file size is **10 MB** per file.
+
+---
+
 ### Workflows
 
 CRUD and lifecycle management for scheduled workflow definitions. Workflow state is persisted to `data/workflows.json`.
