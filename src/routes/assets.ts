@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -56,6 +56,7 @@ export function createAssetsRouter(writer: AssetWriter): Router {
 
       const repoValidation = validateRepository(body.repository);
       if (repoValidation.error) {
+        console.log(`assets: request rejected — ${repoValidation.error}`);
         res.status(400).json({ error: repoValidation.error });
         await cleanupFiles(files);
         return;
@@ -63,6 +64,7 @@ export function createAssetsRouter(writer: AssetWriter): Router {
 
       const pathValidation = validateDestinationPath(body.destinationPath);
       if (pathValidation.error) {
+        console.log(`assets: request rejected — ${pathValidation.error}`);
         res.status(400).json({ error: pathValidation.error });
         await cleanupFiles(files);
         return;
@@ -70,12 +72,14 @@ export function createAssetsRouter(writer: AssetWriter): Router {
 
       const branchValidation = validateBranch(body.branch);
       if (branchValidation.error) {
+        console.log(`assets: request rejected — ${branchValidation.error}`);
         res.status(400).json({ error: branchValidation.error });
         await cleanupFiles(files);
         return;
       }
 
       if (!files || files.length === 0) {
+        console.log("assets: request rejected — no files provided");
         res.status(400).json({ error: "At least one asset file must be uploaded via the 'assets' field" });
         return;
       }
@@ -95,6 +99,7 @@ export function createAssetsRouter(writer: AssetWriter): Router {
 
         if (!isAllowedExtension(filename)) {
           const ext = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")).toLowerCase() : "(none)";
+          console.log(`assets: rejected ${filename} — unsupported_file_type (${ext}) in ${repository}`);
           results.push({
             filename,
             path: `${destinationPath}/${filename}`,
@@ -109,6 +114,7 @@ export function createAssetsRouter(writer: AssetWriter): Router {
 
         const assetPathValidation = validateAssetPath(destinationPath, filename);
         if (assetPathValidation.error) {
+          console.log(`assets: rejected ${filename} — invalid_path: ${assetPathValidation.error}`);
           results.push({
             filename,
             path: `${destinationPath}/${filename}`,
@@ -127,6 +133,7 @@ export function createAssetsRouter(writer: AssetWriter): Router {
           const existsResult = await writer.fileExists(owner, repo, assetPath, branch);
 
           if (existsResult.exists && !overwrite) {
+            console.log(`assets: skipped ${filename} — already exists at ${repository}:${assetPath} on branch '${branch}'`);
             results.push({
               filename,
               path: assetPath,
@@ -151,11 +158,13 @@ export function createAssetsRouter(writer: AssetWriter): Router {
             sha: existsResult.exists ? existsResult.sha : undefined,
           });
 
+          const uploadStatus = writeResult.created ? "created" : "updated";
+          console.log(`assets: ${uploadStatus} ${filename} → ${repository}:${assetPath} on branch '${branch}' (sha: ${writeResult.sha})`);
           results.push({
             filename,
             path: assetPath,
             size: file.size,
-            status: writeResult.created ? "created" : "updated",
+            status: uploadStatus,
             sha: writeResult.sha,
           });
         } catch (err: unknown) {
@@ -176,6 +185,7 @@ export function createAssetsRouter(writer: AssetWriter): Router {
             message = apiErr.message ?? "An unexpected error occurred while writing to the repository";
           }
 
+          console.error(`assets: write failed for ${filename} in ${repository}:${assetPath} — ${error}: ${message}`);
           results.push({
             filename,
             path: assetPath,
@@ -199,6 +209,20 @@ export function createAssetsRouter(writer: AssetWriter): Router {
       res.status(overallStatus(results)).json(response);
     },
   );
+
+  router.use((err: unknown, _req: Request, res: Response, _next: NextFunction): void => {
+    const multerErr = err as { code?: string };
+    if (multerErr?.code === "LIMIT_FILE_SIZE") {
+      res.status(413).json({
+        error: "file_too_large",
+        message: `One or more files exceed the maximum allowed size of ${MAX_FILE_SIZE / (1024 * 1024)} MB`,
+      });
+      return;
+    }
+    const genericErr = err as { message?: string };
+    console.error("assets: unexpected upload error:", genericErr?.message ?? err);
+    res.status(500).json({ error: "An unexpected error occurred while processing the upload" });
+  });
 
   return router;
 }

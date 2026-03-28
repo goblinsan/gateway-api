@@ -4,6 +4,7 @@ import type express from "express";
 import { createApp } from "../src/app.js";
 import type { AssetWriter } from "../src/github/asset-writer.js";
 import type { FileExistsResult, WriteFileResult, WriteFileParams } from "../src/github/asset-writer.js";
+import { MAX_FILE_SIZE } from "../src/validation/asset.js";
 
 // ── Helpers ──
 
@@ -349,6 +350,20 @@ describe("POST /api/assets — per-file validation", () => {
 
     expect(writer.writeFile).not.toHaveBeenCalled();
   });
+
+  it("returns 413 when a file exceeds the maximum allowed size", async () => {
+    const oversizedBuffer = Buffer.alloc(MAX_FILE_SIZE + 1);
+
+    const res = await request(app)
+      .post("/api/assets")
+      .field("repository", "owner/repo")
+      .field("destinationPath", "assets")
+      .attach("assets", oversizedBuffer, "huge.png");
+
+    expect(res.status).toBe(413);
+    expect(res.body.error).toBe("file_too_large");
+    expect(res.body.message).toMatch(/10 MB/i);
+  });
 });
 
 // ── GitHub API error semantics ──
@@ -416,5 +431,85 @@ describe("POST /api/assets — GitHub API error semantics", () => {
     expect(res.status).toBe(207);
     expect(res.body.results[0].status).toBe("failed");
     expect(res.body.results[0].error).toBe("repository_write_failed");
+  });
+});
+
+// ── Observability / logging ──
+
+describe("POST /api/assets — observability logging", () => {
+  it("logs a successful upload at info level", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await request(app)
+      .post("/api/assets")
+      .field("repository", "owner/repo")
+      .field("destinationPath", "assets")
+      .attach("assets", PNG_BUFFER, "logo.png");
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/assets: created logo\.png/),
+    );
+  });
+
+  it("logs a skipped upload when the file already exists", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    writer = makeWriter({
+      fileExists: vi.fn(async () => ({ exists: true, sha: "existing-sha" })),
+    });
+    ({ app } = createApp(undefined, writer));
+
+    await request(app)
+      .post("/api/assets")
+      .field("repository", "owner/repo")
+      .field("destinationPath", "assets")
+      .attach("assets", PNG_BUFFER, "logo.png");
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/assets: skipped logo\.png/),
+    );
+  });
+
+  it("logs a rejection for unsupported file types", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await request(app)
+      .post("/api/assets")
+      .field("repository", "owner/repo")
+      .field("destinationPath", "assets")
+      .attach("assets", Buffer.from("x"), "script.exe");
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/assets: rejected script\.exe.*unsupported_file_type/),
+    );
+  });
+
+  it("logs a write failure at error level", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = Object.assign(new Error("Not Found"), { statusCode: 404 });
+    writer = makeWriter({ fileExists: vi.fn(async () => { throw err; }) });
+    ({ app } = createApp(undefined, writer));
+
+    await request(app)
+      .post("/api/assets")
+      .field("repository", "owner/repo")
+      .field("destinationPath", "assets")
+      .attach("assets", PNG_BUFFER, "logo.png");
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/assets: write failed for logo\.png.*repository_not_found/),
+    );
+  });
+
+  it("logs a request-level validation rejection", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await request(app)
+      .post("/api/assets")
+      .field("destinationPath", "assets")
+      .attach("assets", PNG_BUFFER, "logo.png");
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/assets: request rejected/),
+    );
   });
 });
