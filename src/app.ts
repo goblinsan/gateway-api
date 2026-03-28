@@ -3,6 +3,8 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { plansToProjectRouter } from "./routes/plans-to-project.js";
 import { createWorkflowRouter } from "./routes/workflows.js";
 import { createInternalWorkflowRouter } from "./routes/internal-workflows.js";
+import { createAssetsRouter } from "./routes/assets.js";
+import { GitHubAssetWriter, type AssetWriter } from "./github/asset-writer.js";
 import { WorkflowStore } from "./store/workflow-store.js";
 
 function getConfiguredGatewayApiKey(): string | undefined {
@@ -161,9 +163,10 @@ function renderPrivacyPolicyHtml(): string {
 </html>`;
 }
 
-export function createApp(store?: WorkflowStore) {
+export function createApp(store?: WorkflowStore, assetWriter?: AssetWriter) {
   const app = express();
   const workflowStore = store ?? new WorkflowStore();
+  const resolvedAssetWriter = assetWriter ?? new GitHubAssetWriter(process.env.GITHUB_TOKEN ?? "");
 
   app.use(express.json());
 
@@ -177,6 +180,7 @@ export function createApp(store?: WorkflowStore) {
 
   app.use("/plans-to-project", requireGatewayApiKey, plansToProjectRouter);
   app.use("/api/workflows", requireGatewayApiKey, createWorkflowRouter(workflowStore));
+  app.use("/api/assets", requireGatewayApiKey, createAssetsRouter(resolvedAssetWriter));
   app.use("/internal/workflows", createInternalWorkflowRouter(workflowStore));
 
   return { app, workflowStore };
