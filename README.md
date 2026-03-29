@@ -33,6 +33,16 @@ docker compose up -d --build
 
 The Dockerfile uses a multi-stage build that compiles the `ghp` binary from source (Go) and bundles it into the final Node.js image. In production, the container also checks for a host-managed helper at `/opt/host-tools/ghp` so the gateway can pick up fresh `gh-project-helper` builds without rebuilding the API image. Set `GITHUB_TOKEN` in your `.env` file for `ghp` authentication.
 
+## Runnable Tasks
+
+Host-managed executable tasks live in `jobs/`. Migration assets can stay under
+`migration/`, but runnable automation scripts should be placed in `jobs/` so
+the control plane can target a stable task directory.
+
+Catalog-driven workflow jobs live in `jobs/catalog/`. These are loaded by the
+`gateway-jobs.run` workflow target so scheduled workflows can execute named job
+functions instead of only raw target types.
+
 ## Endpoints
 
 ### `GET /health`
@@ -225,6 +235,10 @@ Images (`.apng`, `.avif`, `.bmp`, `.gif`, `.ico`, `.jpeg`, `.jpg`, `.png`, `.svg
 
 CRUD and lifecycle management for scheduled workflow definitions. Workflow state is persisted to `data/workflows.json`.
 
+### `GET /api/jobs`
+
+Returns the discovered catalog jobs from `jobs/catalog/`.
+
 #### `GET /api/workflows`
 
 Returns all workflow definitions.
@@ -251,6 +265,11 @@ Creates a new workflow.
 ```
 
 Required fields: `name`, `schedule`, `target` (with `type` and `ref`).
+
+Current built-in target types:
+
+- `gateway-chat-platform.agent-turn`
+- `gateway-jobs.run`
 
 #### `PUT /api/workflows/:id`
 

@@ -26,6 +26,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
+COPY jobs ./jobs
 COPY --from=ghp-builder /ghp /usr/local/bin/ghp
 
 ENV NODE_ENV=production

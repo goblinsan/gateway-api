@@ -1,6 +1,7 @@
 import type { Workflow } from "../types/workflow.js";
 import type { WorkflowStore } from "../store/workflow-store.js";
 import { executeAgentTurn } from "./agent-turn.js";
+import { executeCatalogJob } from "./job-runner.js";
 
 export interface ExecutionResult {
   workflowId: string;
@@ -8,6 +9,7 @@ export interface ExecutionResult {
   startedAt: string;
   completedAt: string;
   error?: string;
+  output?: unknown;
 }
 
 export async function dispatch(
@@ -36,6 +38,18 @@ export async function dispatch(
           completedAt: new Date().toISOString(),
         };
         break;
+
+      case "gateway-jobs.run": {
+        const output = await executeCatalogJob(workflow);
+        result = {
+          workflowId: workflow.id,
+          status: "success",
+          startedAt,
+          completedAt: new Date().toISOString(),
+          output,
+        };
+        break;
+      }
 
       default:
         result = {

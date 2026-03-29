@@ -11,12 +11,35 @@ import { WorkflowScheduler } from "../src/runtime/scheduler.js";
 let tmpDir: string;
 let store: WorkflowStore;
 let app: express.Express;
+let channelsPath: string;
 
 const AGENT_TURN_WORKFLOW = {
   name: "daily-briefing",
   schedule: "0 8 * * *",
   target: { type: "gateway-chat-platform.agent-turn", ref: "briefing-agent" },
   input: { prompt: "Give me the morning briefing" },
+};
+
+const JOB_WORKFLOW = {
+  name: "ops-digest",
+  schedule: "0 8 * * *",
+  target: { type: "gateway-jobs.run", ref: "reason_script_summarize_deliver" },
+  input: {
+    reasoning: {
+      prompt: "Reason about the current operational state.",
+      model: "gpt-test",
+    },
+    script: {
+      command: "printf 'script ok'",
+    },
+    summary: {
+      agentId: "briefing-agent",
+      instructions: "Summarize this for delivery in one short paragraph.",
+    },
+    delivery: {
+      channel: "jim-webhook",
+    },
+  },
 };
 
 const LEGACY_WORKFLOW = {
@@ -27,12 +50,36 @@ const LEGACY_WORKFLOW = {
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "gw-runtime-test-"));
+  channelsPath = path.join(tmpDir, "job-channels.json");
+  await fs.writeFile(
+    channelsPath,
+    JSON.stringify(
+      {
+        channels: [
+          {
+            id: "jim-webhook",
+            type: "webhook",
+            enabled: true,
+            webhookUrl: "https://hooks.example.test/jim",
+          },
+        ],
+      },
+      null,
+      2
+    )
+  );
+  process.env.GATEWAY_JOB_CHANNELS_PATH = channelsPath;
+  process.env.OPENAI_API_KEY = "openai-test-key";
+  process.env.OPENAI_DEFAULT_MODEL = "gpt-test";
   store = new WorkflowStore(path.join(tmpDir, "workflows.json"));
   ({ app } = createApp(store));
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  delete process.env.GATEWAY_JOB_CHANNELS_PATH;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_DEFAULT_MODEL;
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -155,6 +202,57 @@ describe("dispatcher", () => {
 
     expect(res.body.status).toBe("failed");
     expect(res.body.error).toMatch(/prompt/i);
+  });
+
+  it("lists available catalog jobs", async () => {
+    const res = await request(app).get("/api/jobs");
+
+    expect(res.status).toBe(200);
+    expect(res.body.jobs.some((job: { id: string }) => job.id === "reason_script_summarize_deliver")).toBe(true);
+  });
+
+  it("runs gateway-jobs.run through the catalog runtime", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const target = String(url);
+      if (target.includes("/v1/chat/completions")) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "reasoned output" } }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (target.includes("/api/agents/briefing-agent/run")) {
+        return new Response(
+          JSON.stringify({
+            agentId: "briefing-agent",
+            usedProvider: "lm-studio-a",
+            model: "qwen-local",
+            content: "final summary",
+            latencyMs: 10,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (target === "https://hooks.example.test/jim") {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${target}`);
+    });
+
+    const created = await createWorkflow(JOB_WORKFLOW);
+    const res = await request(app).post(`/api/workflows/${created.body.id}/run`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("success");
+    expect(res.body.output.reasoning.content).toBe("reasoned output");
+    expect(res.body.output.script.stdout).toContain("script ok");
+    expect(res.body.output.summary.content).toBe("final summary");
+    expect(res.body.output.delivery.channelId).toBe("jim-webhook");
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 });
 

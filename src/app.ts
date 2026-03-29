@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { createJobsRouter } from "./routes/jobs.js";
 import { plansToProjectRouter } from "./routes/plans-to-project.js";
 import { createWorkflowRouter } from "./routes/workflows.js";
 import { createInternalWorkflowRouter } from "./routes/internal-workflows.js";
@@ -178,6 +179,7 @@ export function createApp(store?: WorkflowStore, assetWriter?: AssetWriter) {
     res.type("html").send(renderPrivacyPolicyHtml());
   });
 
+  app.use("/api/jobs", requireGatewayApiKey, createJobsRouter());
   app.use("/plans-to-project", requireGatewayApiKey, plansToProjectRouter);
   app.use("/api/workflows", requireGatewayApiKey, createWorkflowRouter(workflowStore));
   app.use("/api/assets", requireGatewayApiKey, createAssetsRouter(resolvedAssetWriter));

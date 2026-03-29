@@ -5,9 +5,10 @@ const http = require('http');
 const Jimp = require('jimp');
 
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
+const TIMEZONE = process.env.KULRS_TIMEZONE || 'America/New_York';
 
 // Each bot's personality drives its palette inspiration chain:
-// seed word → datamuse association → unsplash image → extracted palette
+// seed word -> datamuse association -> unsplash image -> extracted palette
 const BOT_PERSONALITIES = {
     mireille:   { seeds: ['jazz', 'patisserie', 'lavender', 'champagne', 'ballet', 'autumn', 'lace'] },
     hex_junkie: { seeds: ['circuit', 'neon', 'ramen', 'keyboard', 'plasma', 'glitch', 'laser'] },
@@ -26,13 +27,11 @@ const BOT_PERSONALITIES = {
     driftwood:  { seeds: ['driftwood', 'fog', 'tide', 'barnacle', 'kelp', 'coastal', 'pebble'] },
 };
 
-const BOTS = Object.keys(BOT_PERSONALITIES);
-
-const WORKSPACE_DIR = '/home/momito/.openclaw/workspace';
-const ACTIVITY_LOG_PATH = path.join(WORKSPACE_DIR, 'memory', 'kulrs-activity-log.json');
-const AUTH_HEALTH_LOG_PATH = path.join(WORKSPACE_DIR, 'memory', 'kulrs-auth-health.json');
-const CREDS_PATH = '/home/momito/.openclaw/kulrs.json';
-const CRON_LOG_PATH = path.join(WORKSPACE_DIR, 'memory', 'kulrs-cron.log');
+const WORKSPACE_DIR = process.env.KULRS_WORKSPACE_DIR || '/home/momito/.openclaw/workspace';
+const ACTIVITY_LOG_PATH = process.env.KULRS_ACTIVITY_LOG_PATH || path.join(WORKSPACE_DIR, 'memory', 'kulrs-activity-log.json');
+const AUTH_HEALTH_LOG_PATH = process.env.KULRS_AUTH_HEALTH_LOG_PATH || path.join(WORKSPACE_DIR, 'memory', 'kulrs-auth-health.json');
+const CREDS_PATH = process.env.KULRS_CREDS_PATH || '/home/momito/.openclaw/kulrs.json';
+const CRON_LOG_PATH = process.env.KULRS_CRON_LOG_PATH || path.join(WORKSPACE_DIR, 'memory', 'kulrs-cron.log');
 const CRON_LOG_MAX_LINES = 100;
 
 async function rotateCronLog() {
@@ -62,6 +61,7 @@ async function readJson(filePath, defaultValue = null) {
 }
 
 async function writeJson(filePath, data) {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -120,15 +120,33 @@ async function signInBot(email, password, apiKey) {
     return res.idToken;
 }
 
+function resolveConfiguredBots(creds) {
+    const requestedBots = (process.env.KULRS_BOTS || '')
+        .split(',')
+        .map(bot => bot.trim())
+        .filter(Boolean);
+
+    const candidateBots = requestedBots.length > 0
+        ? requestedBots
+        : Object.keys(creds).filter(key => key !== 'firebaseApiKey');
+
+    return candidateBots.filter(bot =>
+        BOT_PERSONALITIES[bot] &&
+        creds[bot] &&
+        typeof creds[bot].email === 'string' &&
+        creds[bot].email &&
+        typeof creds[bot].password === 'string' &&
+        creds[bot].password
+    );
+}
+
 // --- Inspiration Chain ---
 
-// Step 1: pick a random seed from the bot's personality
 function pickSeed(bot) {
     const seeds = BOT_PERSONALITIES[bot].seeds;
     return seeds[Math.floor(Math.random() * seeds.length)];
 }
 
-// Step 2: get words strongly associated with the seed via Datamuse
 async function getAssociatedWord(seed) {
     const { status, body } = await httpsGet(
         `https://api.datamuse.com/words?rel_trg=${encodeURIComponent(seed)}&max=30`
@@ -136,12 +154,10 @@ async function getAssociatedWord(seed) {
     if (status !== 200 || !Array.isArray(body) || body.length === 0) {
         throw new Error(`Datamuse returned no associations for "${seed}"`);
     }
-    // Pick from top 15 results (higher score = stronger association)
     const pool = body.slice(0, 15);
     return pool[Math.floor(Math.random() * pool.length)].word;
 }
 
-// Step 3: search Unsplash for photos matching the associated word
 async function searchUnsplash(query) {
     if (!UNSPLASH_ACCESS_KEY) throw new Error('UNSPLASH_ACCESS_KEY env var not set');
     const options = {
@@ -161,7 +177,6 @@ async function searchUnsplash(query) {
     return { url: photo.urls.small, id: photo.id, description: photo.alt_description || query };
 }
 
-// Step 4: download image and extract sampled RGB pixels (max 5000)
 async function extractPixelsFromUrl(imageUrl) {
     const buffer = await new Promise((resolve, reject) => {
         const client = imageUrl.startsWith('https') ? https : http;
@@ -191,7 +206,6 @@ async function extractPixelsFromUrl(imageUrl) {
     return pixels;
 }
 
-// Step 5: POST pixels to Kulrs /generate/image → get OKLCH palette
 async function generatePaletteFromPixels(pixels, token) {
     const body = JSON.stringify({ pixels, colorCount: 5 });
     const options = {
@@ -207,7 +221,7 @@ async function generatePaletteFromPixels(pixels, token) {
         },
     };
     const res = await apiRequest(options, body);
-    return res.data; // { colors: [{role, color: {h,c,l}}], metadata: {...} }
+    return res.data;
 }
 
 // --- Core Actions ---
@@ -230,12 +244,12 @@ async function performCreateAction(bot, token) {
             colors: generated.colors,
             metadata: {
                 generator: `kulrs-pulse:${bot}`,
-                explanation: `${seed} → ${word}`,
+                explanation: `${seed} -> ${word}`,
                 timestamp: new Date().toISOString(),
             },
         },
         name: `${word} by ${bot}`,
-        description: `Inspired by "${seed}" → "${word}"`,
+        description: `Inspired by "${seed}" -> "${word}"`,
         isPublic: true,
     });
     const options = {
@@ -292,7 +306,7 @@ async function performLikeAction(bot, token, activityLog) {
 
 async function main() {
     await rotateCronLog();
-    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
     const hour = now.getHours();
     if (hour < 5 || hour > 23) return;
 
@@ -303,16 +317,16 @@ async function main() {
     const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
     if (activityLog.some(e => e.slotIndex === slotIndex && new Date(e.ts).getTime() > fifteenMinutesAgo)) return;
 
-    const bot = BOTS[slotIndex % BOTS.length];
     const action = (slotIndex % 2 === 0) ? 'CREATE' : 'LIKE';
+    let bot = 'unconfigured';
     let result = 'fail', target = null, reason = '';
 
     try {
         const creds = await readJson(CREDS_PATH, {});
-        if (!creds.firebaseApiKey) throw new Error('Missing firebaseApiKey in kulrs.json');
-        if (!creds[bot]?.email || !creds[bot]?.password) {
-            throw new Error(`Missing credentials for bot: ${bot}`);
-        }
+        if (!creds.firebaseApiKey) throw new Error('Missing firebaseApiKey in KULRS credentials');
+        const configuredBots = resolveConfiguredBots(creds);
+        if (configuredBots.length === 0) throw new Error('No configured KULRS bots found in credentials');
+        bot = configuredBots[slotIndex % configuredBots.length];
         const token = await signInBot(creds[bot].email, creds[bot].password, creds.firebaseApiKey);
 
         target = action === 'LIKE'
