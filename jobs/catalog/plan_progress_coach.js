@@ -255,6 +255,7 @@ export async function run(context) {
     const agentId = optionalString(input.agentId) || DEFAULT_AGENT_ID;
     const noteLog = input.noteLog ? requireRecord(input.noteLog, 'workflow.input.noteLog') : {};
     const delivery = input.delivery ? requireRecord(input.delivery, 'workflow.input.delivery') : null;
+    const chatThread = input.chatThread ? requireRecord(input.chatThread, 'workflow.input.chatThread') : null;
     const searchDirs = optionalStringArray(input.notesSearchDirs) || DEFAULT_NOTE_DIRS;
     const recentNotesLimit = typeof input.recentNotesLimit === 'number' && Number.isFinite(input.recentNotesLimit)
         ? Math.max(1, Math.floor(input.recentNotesLimit))
@@ -264,6 +265,17 @@ export async function run(context) {
     const recentNotes = await loadRecentNotes(notesRepoPath, searchDirs, recentNotesLimit);
     const nowLabel = localTimestamp(timeZone);
     const changedPaths = [];
+    const agentContext = chatThread && typeof chatThread.threadId === 'string' && chatThread.threadId.trim()
+        ? {
+            source: mode === 'check-in' ? 'ancr-coach-check-in' : 'ancr-coach-progress',
+            metadata: {
+                threadId: chatThread.threadId.trim(),
+                ...(typeof chatThread.threadTitle === 'string' && chatThread.threadTitle.trim()
+                    ? { threadTitle: chatThread.threadTitle.trim() }
+                    : {}),
+            },
+        }
+        : undefined;
 
     if (mode === 'log-progress') {
         const progressEntry = requireString(input.progressEntry, 'workflow.input.progressEntry');
@@ -291,7 +303,7 @@ export async function run(context) {
                 progressEntry,
                 timeZone,
                 nowLabel,
-            }));
+            }), undefined, agentContext);
             await appendSection(notePath, [
                 `## Coach Reflection (${nowLabel})`,
                 '',
@@ -339,7 +351,7 @@ export async function run(context) {
         phase,
         timeZone,
         nowLabel,
-    }));
+    }), undefined, agentContext);
 
     let deliveryResult = null;
     if (delivery && typeof delivery.channel === 'string' && delivery.channel.trim()) {
