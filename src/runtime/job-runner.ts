@@ -23,6 +23,11 @@ export interface AgentRunResult {
   model: string;
   content: string;
   latencyMs: number;
+  inbox?: {
+    messageId: string;
+    userId: string;
+    channelId: string;
+  };
   usage?: {
     promptTokens: number;
     completionTokens: number;

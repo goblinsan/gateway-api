@@ -38,6 +38,23 @@ function optionalStringArray(value) {
         .map((item) => item.trim());
 }
 
+function normalizeInboxDelivery(value) {
+    if (!value) {
+        return null;
+    }
+    const inbox = requireRecord(value, 'workflow.input.inbox');
+    const userId = requireString(inbox.userId, 'workflow.input.inbox.userId');
+    return {
+        mode: 'inbox',
+        userId,
+        channelId: optionalString(inbox.channelId) || 'coach',
+        ...(optionalString(inbox.threadId) ? { threadId: optionalString(inbox.threadId) } : {}),
+        ...(optionalString(inbox.threadTitle) ? { threadTitle: optionalString(inbox.threadTitle) } : {}),
+        ...(optionalString(inbox.title) ? { title: optionalString(inbox.title) } : {}),
+        ...(optionalString(inbox.kind) ? { kind: optionalString(inbox.kind) } : {}),
+    };
+}
+
 function shellEscape(value) {
     return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
@@ -255,6 +272,7 @@ export async function run(context) {
     const agentId = optionalString(input.agentId) || DEFAULT_AGENT_ID;
     const noteLog = input.noteLog ? requireRecord(input.noteLog, 'workflow.input.noteLog') : {};
     const delivery = input.delivery ? requireRecord(input.delivery, 'workflow.input.delivery') : null;
+    const inboxDelivery = normalizeInboxDelivery(input.inbox);
     const chatThread = input.chatThread ? requireRecord(input.chatThread, 'workflow.input.chatThread') : null;
     const searchDirs = optionalStringArray(input.notesSearchDirs) || DEFAULT_NOTE_DIRS;
     const recentNotesLimit = typeof input.recentNotesLimit === 'number' && Number.isFinite(input.recentNotesLimit)
@@ -295,7 +313,7 @@ export async function run(context) {
         changedPaths.push(notePath);
 
         let reflection = null;
-        if (delivery || input.includeReflection === true) {
+        if (delivery || inboxDelivery || input.includeReflection === true) {
             context.log(`Calling local coach agent for reflection: ${agentId}`);
             reflection = await context.runAgent(agentId, buildReflectionPrompt({
                 planText,
@@ -303,7 +321,7 @@ export async function run(context) {
                 progressEntry,
                 timeZone,
                 nowLabel,
-            }), undefined, agentContext);
+            }), inboxDelivery, agentContext);
             await appendSection(notePath, [
                 `## Coach Reflection (${nowLabel})`,
                 '',
@@ -334,6 +352,7 @@ export async function run(context) {
             notePath: relative(notesRepoPath, notePath),
             recentNotes: recentNotes.map((note) => note.relativePath),
             reflection,
+            inbox: reflection?.inbox ?? null,
             delivery: deliveryResult,
             git: gitResult,
         };
@@ -351,7 +370,7 @@ export async function run(context) {
         phase,
         timeZone,
         nowLabel,
-    }), undefined, agentContext);
+    }), inboxDelivery, agentContext);
 
     let deliveryResult = null;
     if (delivery && typeof delivery.channel === 'string' && delivery.channel.trim()) {
@@ -395,6 +414,7 @@ export async function run(context) {
         notesRepoPath,
         recentNotes: recentNotes.map((note) => note.relativePath),
         coach: coachResult,
+        inbox: coachResult.inbox ?? null,
         delivery: deliveryResult,
         notePath: notePath ? relative(notesRepoPath, notePath) : null,
         git: gitResult,
