@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Optional git revision to deploy instead of the current workflow SHA
+        required: false
+        type: string
 
 concurrency:
   group: gateway-api-production-deploy
@@ -14,6 +20,8 @@ jobs:
     runs-on:
       - self-hosted
       - gateway
+    env:
+      DEPLOY_REVISION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.revision || github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,4 +29,4 @@ jobs:
           node-version: '24'
       - run: npm ci
       - run: npm run build
-      - run: /opt/gateway-control-plane/deploy/bin/deploy-app.sh --config /opt/gateway-control-plane/configs/gateway.config.json --app gateway-api --revision "${GITHUB_SHA}"
+      - run: /opt/gateway-control-plane/deploy/bin/deploy-app.sh --config /opt/gateway-control-plane/configs/gateway.config.json --app gateway-api --revision "${DEPLOY_REVISION}"
