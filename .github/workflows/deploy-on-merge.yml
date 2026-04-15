@@ -29,4 +29,13 @@ jobs:
           node-version: '24'
       - run: npm ci
       - run: npm run build
+      - name: Sync host control-plane checkout
+        run: |
+          if [ ! -d /opt/gateway-control-plane/.git ]; then
+            sudo git clone https://github.com/goblinsan/gateway-control-plane.git /opt/gateway-control-plane
+            sudo chown -R "$USER":"$(id -gn)" /opt/gateway-control-plane
+          fi
+          git -C /opt/gateway-control-plane merge --abort || true
+          git -C /opt/gateway-control-plane fetch --all --tags --prune
+          git -C /opt/gateway-control-plane checkout --force origin/main
       - run: /opt/gateway-control-plane/deploy/bin/deploy-app.sh --config /opt/gateway-control-plane/configs/gateway.config.json --app gateway-api --revision "${DEPLOY_REVISION}"
