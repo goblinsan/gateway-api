@@ -403,6 +403,69 @@ function normalizeHexColor(value) {
     return null;
 }
 
+const PALETTE_ROLE_NAMES = [
+    'primary',
+    'secondary',
+    'accent',
+    'info',
+    'success',
+    'warning',
+    'error',
+    'background',
+];
+
+function srgbToLinear(c) {
+    const normalized = c / 255;
+    if (normalized <= 0.04045) {
+        return normalized / 12.92;
+    }
+    return Math.pow((normalized + 0.055) / 1.055, 2.4);
+}
+
+function linearRgbToOklch({ r, g, b }) {
+    const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
+    const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
+    const s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
+
+    const lRoot = Math.cbrt(l);
+    const mRoot = Math.cbrt(m);
+    const sRoot = Math.cbrt(s);
+
+    const labL = 0.2104542553 * lRoot + 0.7936177850 * mRoot - 0.0040720468 * sRoot;
+    const labA = 1.9779984951 * lRoot - 2.4285922050 * mRoot + 0.4505937099 * sRoot;
+    const labB = 0.0259040371 * lRoot + 0.7827717662 * mRoot - 0.8086757660 * sRoot;
+
+    const chroma = Math.sqrt(labA * labA + labB * labB);
+    let hue = Math.atan2(labB, labA) * (180 / Math.PI);
+    if (hue < 0) hue += 360;
+
+    return {
+        l: labL,
+        c: chroma,
+        h: hue,
+    };
+}
+
+function hexToOklch(hex) {
+    const value = normalizeHexColor(hex);
+    if (!value) {
+        throw new Error(`Invalid hex color "${hex}"`);
+    }
+
+    return linearRgbToOklch({
+        r: srgbToLinear(Number.parseInt(value.slice(1, 3), 16)),
+        g: srgbToLinear(Number.parseInt(value.slice(3, 5), 16)),
+        b: srgbToLinear(Number.parseInt(value.slice(5, 7), 16)),
+    });
+}
+
+function buildAssignedColors(hexColors) {
+    return hexColors.map((hex, index) => ({
+        role: PALETTE_ROLE_NAMES[index % PALETTE_ROLE_NAMES.length],
+        color: hexToOklch(hex),
+    }));
+}
+
 function validatePaletteResponse(rawPayload, fallbackName, fallbackDescription) {
     const payload = rawPayload && typeof rawPayload === 'object' ? rawPayload : {};
     const colors = Array.isArray(payload.colors)
@@ -420,7 +483,12 @@ function validatePaletteResponse(rawPayload, fallbackName, fallbackDescription) 
         ? payload.description.trim().slice(0, 180)
         : fallbackDescription;
 
-    return { name, description, colors: uniqueColors };
+    return {
+        name,
+        description,
+        colors: uniqueColors,
+        explanation: description,
+    };
 }
 
 async function callKulrsLlm(messages, temperature) {
@@ -566,12 +634,14 @@ async function performCreateLlmAction(bot, token, now) {
 
     const calendar = getCalendarThemeContext(now);
     const generated = await generatePaletteViaLlm({ bot, seed, topic, calendar });
+    const assignedColors = buildAssignedColors(generated.colors);
 
     const postBody = JSON.stringify({
         palette: {
-            colors: generated.colors,
+            colors: assignedColors,
             metadata: {
                 generator: `kulrs-pulse:${bot}`,
+                explanation: generated.explanation,
                 strategy: 'llm',
                 seed,
                 topic,
