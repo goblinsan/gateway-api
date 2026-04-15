@@ -5,7 +5,6 @@ const fs = require('fs').promises;
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const Jimp = require('jimp');
 
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const TIMEZONE = process.env.KULRS_TIMEZONE || 'America/New_York';
@@ -318,6 +317,7 @@ async function searchUnsplash(query) {
 }
 
 async function extractPixelsFromUrl(imageUrl) {
+    const Jimp = require('jimp');
     const buffer = await new Promise((resolve, reject) => {
         const client = imageUrl.startsWith('https') ? https : http;
         const get = (url) => client.get(url, (res) => {
