@@ -1,3 +1,6 @@
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 const fs = require('fs').promises;
 const path = require('path');
 const https = require('https');
