@@ -27,6 +27,8 @@ const KULRS_LLM_API_KEY = (
 const KULRS_LLM_TIMEOUT_MS = Number.parseInt(process.env.KULRS_LLM_TIMEOUT_MS || '25000', 10);
 const KULRS_LLM_TEMPERATURE = Number.parseFloat(process.env.KULRS_LLM_TEMPERATURE || '0.7');
 const CRON_LOG_RETENTION_DAYS = Number.parseFloat(process.env.KULRS_CRON_LOG_RETENTION_DAYS || '2');
+const KULRS_IGNORE_WINDOW = /^(1|true|yes|on)$/i.test(process.env.KULRS_IGNORE_WINDOW || '');
+const KULRS_IGNORE_DUPLICATE_SLOT = /^(1|true|yes|on)$/i.test(process.env.KULRS_IGNORE_DUPLICATE_SLOT || '');
 
 const CALENDAR_THEME_WINDOWS = [
     { label: "New Year's", start: '12-26', end: '01-05', notes: ['midnight', 'spark', 'clean slate'] },
@@ -721,9 +723,12 @@ async function main() {
     await rotateCronLog();
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
     const hour = now.getHours();
-    if (hour < 5 || hour > 23) {
+    if (!KULRS_IGNORE_WINDOW && (hour < 5 || hour > 23)) {
         await logInfo(`Skipping run outside active window in ${TIMEZONE} (hour=${hour})`);
         return;
+    }
+    if (KULRS_IGNORE_WINDOW) {
+        await logWarn(`Ignoring active window guard in ${TIMEZONE} for manual/test execution`);
     }
 
     const slotIndex = Math.floor((hour * 60 + now.getMinutes()) / 5);
@@ -731,9 +736,12 @@ async function main() {
     if (!Array.isArray(activityLog)) activityLog = [];
 
     const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
-    if (activityLog.some(e => e.slotIndex === slotIndex && new Date(e.ts).getTime() > fifteenMinutesAgo)) {
+    if (!KULRS_IGNORE_DUPLICATE_SLOT && activityLog.some(e => e.slotIndex === slotIndex && new Date(e.ts).getTime() > fifteenMinutesAgo)) {
         await logInfo(`Skipping duplicate slot ${slotIndex}`);
         return;
+    }
+    if (KULRS_IGNORE_DUPLICATE_SLOT) {
+        await logWarn(`Ignoring duplicate slot guard for slot ${slotIndex}`);
     }
 
     const action = (slotIndex % 2 === 0) ? 'CREATE' : 'LIKE';
