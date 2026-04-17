@@ -218,7 +218,13 @@ function buildScheduledTagSpecs({ seed, topic, calendar }) {
         });
     };
 
-    pushTag(calendar.season, `Auto-created seasonal tag for ${calendar.season} palettes.`);
+    const seasonSlug = slugifyTag(calendar.season);
+    const seedSlug = slugifyTag(seed);
+    const topicSlug = slugifyTag(topic);
+
+    if (seasonSlug && (seedSlug === seasonSlug || topicSlug === seasonSlug)) {
+        pushTag(calendar.season, `Auto-created seasonal tag for ${calendar.season} palettes.`);
+    }
 
     for (const holidayTheme of calendar.holidayThemes) {
         for (const value of mapHolidayThemeToTags(holidayTheme)) {
@@ -228,8 +234,7 @@ function buildScheduledTagSpecs({ seed, topic, calendar }) {
 
     pushTag(seed, `Auto-created tag from Kulrs pulse seed "${seed}".`);
 
-    const topicSlug = slugifyTag(topic);
-    if (topicSlug && topicSlug !== slugifyTag(seed) && topicSlug.length >= 3) {
+    if (topicSlug && topicSlug !== seedSlug && topicSlug.length >= 3) {
         pushTag(topic, `Auto-created tag from Kulrs pulse topic "${topic}".`);
     }
 
