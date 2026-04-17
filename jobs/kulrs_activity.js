@@ -69,6 +69,9 @@ const AUTH_HEALTH_LOG_PATH = process.env.KULRS_AUTH_HEALTH_LOG_PATH || path.join
 const CREDS_PATH = process.env.KULRS_CREDS_PATH || '/home/momito/.openclaw/kulrs.json';
 const CRON_LOG_PATH = process.env.KULRS_CRON_LOG_PATH || path.join(WORKSPACE_DIR, 'memory', 'kulrs-cron.log');
 const CRON_LOG_MAX_LINES = Number.parseInt(process.env.KULRS_CRON_LOG_MAX_LINES || '500', 10);
+const MAX_SCHEDULED_TAGS = 6;
+
+let paletteTagCache = null;
 
 async function rotateCronLog() {
     try {
@@ -136,6 +139,152 @@ async function writeJson(filePath, data) {
 
 function clampNumber(value, fallback) {
     return Number.isFinite(value) ? value : fallback;
+}
+
+function slugifyTag(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 50);
+}
+
+function prettifyTagLabel(value) {
+    return String(value || '')
+        .trim()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .split(' ')
+        .filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+        .slice(0, 50);
+}
+
+function dedupeTagSpecs(specs) {
+    const unique = new Map();
+    for (const spec of specs) {
+        const slug = slugifyTag(spec?.slug || spec?.name || '');
+        if (!slug || unique.has(slug)) continue;
+        unique.set(slug, {
+            name: prettifyTagLabel(spec?.name || slug),
+            slug,
+            description: typeof spec?.description === 'string' && spec.description.trim()
+                ? spec.description.trim().slice(0, 1000)
+                : undefined,
+        });
+    }
+    return Array.from(unique.values());
+}
+
+function mapHolidayThemeToTags(label) {
+    switch (label) {
+        case "New Year's":
+            return ['winter'];
+        case "Valentine's season":
+            return ['pink'];
+        case "St. Patrick's season":
+            return ['green'];
+        case 'Spring holidays':
+            return ['spring'];
+        case 'Memorial Day season':
+            return ['summer'];
+        case 'Independence Day season':
+            return ['summer'];
+        case 'Back-to-school season':
+            return [];
+        case 'Halloween season':
+            return ['halloween'];
+        case 'Thanksgiving season':
+            return ['autumn'];
+        case 'Winter holidays':
+            return ['winter', 'christmas'];
+        default:
+            return [label];
+    }
+}
+
+function buildScheduledTagSpecs({ seed, topic, calendar }) {
+    const specs = [];
+    const pushTag = (value, description) => {
+        const slug = slugifyTag(value);
+        if (!slug) return;
+        specs.push({
+            name: prettifyTagLabel(value),
+            slug,
+            description,
+        });
+    };
+
+    pushTag(calendar.season, `Auto-created seasonal tag for ${calendar.season} palettes.`);
+
+    for (const holidayTheme of calendar.holidayThemes) {
+        for (const value of mapHolidayThemeToTags(holidayTheme)) {
+            pushTag(value, `Auto-created calendar tag from ${holidayTheme}.`);
+        }
+    }
+
+    pushTag(seed, `Auto-created tag from Kulrs pulse seed "${seed}".`);
+
+    const topicSlug = slugifyTag(topic);
+    if (topicSlug && topicSlug !== slugifyTag(seed) && topicSlug.length >= 3) {
+        pushTag(topic, `Auto-created tag from Kulrs pulse topic "${topic}".`);
+    }
+
+    return dedupeTagSpecs(specs).slice(0, MAX_SCHEDULED_TAGS);
+}
+
+async function fetchPaletteTags(forceRefresh = false) {
+    if (!forceRefresh && Array.isArray(paletteTagCache)) {
+        return paletteTagCache;
+    }
+
+    const res = await apiRequest({
+        hostname: 'api.kulrs.com',
+        path: '/palettes/tags',
+        method: 'GET',
+        headers: {
+            'Origin': 'https://kulrs.com',
+            'User-Agent': 'Mozilla/5.0',
+        },
+    });
+
+    paletteTagCache = Array.isArray(res.data) ? res.data : [];
+    return paletteTagCache;
+}
+
+async function ensurePaletteTags(token, tagSpecs) {
+    const desired = dedupeTagSpecs(tagSpecs);
+    if (desired.length === 0) return [];
+
+    const existing = await fetchPaletteTags();
+    const existingBySlug = new Map(existing.map(tag => [String(tag.slug || '').toLowerCase(), tag]));
+    const missing = desired.filter(tag => !existingBySlug.has(tag.slug));
+
+    if (missing.length > 0) {
+        const body = JSON.stringify({ tags: missing });
+        const created = await apiRequest({
+            hostname: 'api.kulrs.com',
+            path: '/palettes/tags/ensure',
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'Origin': 'https://kulrs.com',
+                'User-Agent': 'Mozilla/5.0',
+                'Content-Length': Buffer.byteLength(body),
+            },
+        }, body);
+
+        const createdTags = Array.isArray(created.data) ? created.data : [];
+        paletteTagCache = [...existing.filter(Boolean), ...createdTags.filter(Boolean)];
+    }
+
+    const refreshed = await fetchPaletteTags(true);
+    const refreshedBySlug = new Map(refreshed.map(tag => [String(tag.slug || '').toLowerCase(), tag]));
+    return desired.map(tag => refreshedBySlug.get(tag.slug)).filter(Boolean);
 }
 
 function getLocalDateParts(date) {
@@ -580,7 +729,7 @@ async function generatePaletteViaLlm({ bot, seed, topic, calendar }) {
 
 // --- Core Actions ---
 
-async function performCreateImageAction(bot, token) {
+async function performCreateImageAction(bot, token, now) {
     const seed = pickSeed(bot);
     let word;
     try {
@@ -592,6 +741,9 @@ async function performCreateImageAction(bot, token) {
     const photo = await searchUnsplash(word);
     const pixels = await extractPixelsFromUrl(photo.url);
     const generated = await generatePaletteFromPixels(pixels, token);
+    const calendar = getCalendarThemeContext(now);
+    const tagSpecs = buildScheduledTagSpecs({ seed, topic: word, calendar });
+    const ensuredTags = await ensurePaletteTags(token, tagSpecs);
 
     const postBody = JSON.stringify({
         palette: {
@@ -599,12 +751,14 @@ async function performCreateImageAction(bot, token) {
             metadata: {
                 generator: `kulrs-pulse:${bot}`,
                 explanation: `${seed} -> ${word}`,
+                tags: tagSpecs.map(tag => tag.slug),
                 timestamp: new Date().toISOString(),
             },
         },
         name: `${word} by ${bot}`,
         description: `Inspired by "${seed}" -> "${word}"`,
         isPublic: true,
+        tagIds: ensuredTags.map(tag => tag.id),
     });
     const options = {
         hostname: 'api.kulrs.com',
@@ -637,6 +791,8 @@ async function performCreateLlmAction(bot, token, now) {
     const calendar = getCalendarThemeContext(now);
     const generated = await generatePaletteViaLlm({ bot, seed, topic, calendar });
     const assignedColors = buildAssignedColors(generated.colors);
+    const tagSpecs = buildScheduledTagSpecs({ seed, topic, calendar });
+    const ensuredTags = await ensurePaletteTags(token, tagSpecs);
 
     const postBody = JSON.stringify({
         palette: {
@@ -648,12 +804,14 @@ async function performCreateLlmAction(bot, token, now) {
                 seed,
                 topic,
                 calendar: calendar.summary,
+                tags: tagSpecs.map(tag => tag.slug),
                 timestamp: new Date().toISOString(),
             },
         },
         name: generated.name,
         description: generated.description,
         isPublic: true,
+        tagIds: ensuredTags.map(tag => tag.id),
     });
     const options = {
         hostname: 'api.kulrs.com',
@@ -677,7 +835,7 @@ async function performCreateLlmAction(bot, token, now) {
 
 async function performCreateAction(bot, token, now) {
     if (KULRS_CREATE_MODE === 'image') {
-        return performCreateImageAction(bot, token);
+        return performCreateImageAction(bot, token, now);
     }
     if (KULRS_CREATE_MODE !== 'llm') {
         throw new Error(`Unsupported KULRS_CREATE_MODE "${KULRS_CREATE_MODE}"`);
