@@ -94,13 +94,32 @@ Runs the same non-mutating repo-resolution preflight, but accepts the plan as JS
 
 ### `POST /plans-to-project/apply`
 
-Applies a plan YAML file to create GitHub project milestones, epics, and issues.
+Applies a plan YAML file to sync GitHub project milestones, epics, and issues.
 
 - **Body**: `multipart/form-data` with a `plan` field containing a `.yaml`/`.yml` file
 - **Optional field**: `repositoryOverride=owner/repo` to force apply against an existing exact repo chosen during preflight
 - **Optional field**: `createRepoIfMissing=true` to allow creating the requested repo when no similar matches were found during preflight
 - **Query**: `?dryRun=true` to preview without applying
-- **200**: `{ "success": true, "output": "...", "warnings": "..." }`
+- **200**: structured sync response:
+
+```json
+{
+  "success": true,
+  "output": "Summary: 1 milestones synced ...",
+  "report": {
+    "milestones_created": 0,
+    "milestones_updated": 1,
+    "epics_created": 0,
+    "epics_updated": 1,
+    "epics_skipped": 0,
+    "issues_created": 0,
+    "issues_updated": 2,
+    "issues_skipped": 0,
+    "epic_urls": ["https://github.com/owner/repo/issues/42"]
+  }
+}
+```
+
 - **500**: `{ "success": false, "error": "..." }`
 
 ### `POST /plans-to-project/plan`
@@ -142,6 +161,8 @@ Behavior matches `/plans-to-project/plan`:
 - Returns `409` for `create_repo_confirmation_required` unless `createRepoIfMissing=true` is supplied.
 - Returns `422` if the plan is invalid.
 - Applies immediately on the exact-match happy path.
+
+Successful apply responses include the same `report` payload described above so callers can distinguish creates from updates without scraping CLI text.
 
 ### `POST /api/assets`
 

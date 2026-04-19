@@ -42,7 +42,7 @@ beforeEach(async () => {
     '    if [ -n "${GHP_TEST_APPLY_STDOUT:-}" ]; then',
     '      printf \'%s\\n\' "$GHP_TEST_APPLY_STDOUT"',
     '    else',
-    '      printf \'%s\\n\' \'applied\'',
+    '      printf \'%s\\n\' \'{"milestones_created":1,"milestones_updated":0,"epics_created":1,"epics_updated":0,"epics_skipped":0,"issues_created":2,"issues_updated":0,"issues_skipped":0,"epic_urls":["https://github.com/test/repo/issues/1"]}\'',
     '    fi',
     '    ;;',
     '  *)',
@@ -134,7 +134,17 @@ describe("plans-to-project", () => {
         similar: [],
       },
     });
-    process.env.GHP_TEST_APPLY_STDOUT = "created repo";
+    process.env.GHP_TEST_APPLY_STDOUT = JSON.stringify({
+      milestones_created: 1,
+      milestones_updated: 0,
+      epics_created: 1,
+      epics_updated: 0,
+      epics_skipped: 0,
+      issues_created: 0,
+      issues_updated: 0,
+      issues_skipped: 0,
+      epic_urls: ["https://github.com/test/repo/issues/1"],
+    });
 
     const res = await request(app)
       .post("/plans-to-project/plan-from-text")
@@ -159,7 +169,17 @@ describe("plans-to-project", () => {
         similar: [{ fullName: "owner/similar-repo", description: "similar" }],
       },
     });
-    process.env.GHP_TEST_APPLY_STDOUT = "apply ok";
+    process.env.GHP_TEST_APPLY_STDOUT = JSON.stringify({
+      milestones_created: 1,
+      milestones_updated: 0,
+      epics_created: 1,
+      epics_updated: 1,
+      epics_skipped: 0,
+      issues_created: 2,
+      issues_updated: 3,
+      issues_skipped: 0,
+      epic_urls: ["https://github.com/test/repo/issues/1"],
+    });
 
     const res = await request(app)
       .post("/plans-to-project/plan-from-text")
@@ -170,9 +190,11 @@ describe("plans-to-project", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.output).toBe("apply ok");
+    expect(res.body.report.epics_updated).toBe(1);
+    expect(res.body.output).toContain("epics synced");
 
     const log = await fs.readFile(logPath, "utf8");
+    expect(log).toContain("--json");
     expect(log).toContain("--repository-override owner/similar-repo");
   });
 
@@ -224,7 +246,17 @@ describe("plans-to-project", () => {
         similar: [{ fullName: "owner/similar-repo", description: "similar" }],
       },
     });
-    process.env.GHP_TEST_APPLY_STDOUT = "apply ok";
+    process.env.GHP_TEST_APPLY_STDOUT = JSON.stringify({
+      milestones_created: 1,
+      milestones_updated: 1,
+      epics_created: 1,
+      epics_updated: 1,
+      epics_skipped: 0,
+      issues_created: 2,
+      issues_updated: 1,
+      issues_skipped: 0,
+      epic_urls: ["https://github.com/test/repo/issues/1"],
+    });
 
     const res = await request(app)
       .post("/plans-to-project/plan")
@@ -233,11 +265,38 @@ describe("plans-to-project", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.output).toBe("apply ok");
+    expect(res.body.report.milestones_updated).toBe(1);
+    expect(res.body.output).toContain("milestones synced");
 
     const log = await fs.readFile(logPath, "utf8");
     expect(log).toContain("preflight -f");
     expect(log).toContain("apply -f");
+    expect(log).toContain("--json");
     expect(log).toContain("--repository-override owner/similar-repo");
+  });
+
+  it("returns structured apply report payloads", async () => {
+    process.env.GHP_TEST_APPLY_STDOUT = JSON.stringify({
+      milestones_created: 0,
+      milestones_updated: 1,
+      epics_created: 0,
+      epics_updated: 1,
+      epics_skipped: 0,
+      issues_created: 0,
+      issues_updated: 2,
+      issues_skipped: 0,
+      epic_urls: ["https://github.com/test/repo/issues/42"],
+    });
+
+    const res = await request(app)
+      .post("/plans-to-project/apply")
+      .attach("plan", Buffer.from("project: My Project\nrepository: owner/repo\n"), "plan.yaml");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.report.milestones_updated).toBe(1);
+    expect(res.body.report.issues_updated).toBe(2);
+    expect(res.body.report.epic_urls).toEqual(["https://github.com/test/repo/issues/42"]);
+    expect(res.body.output).toContain("0 created, 1 updated");
   });
 });

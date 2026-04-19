@@ -47,6 +47,18 @@ interface PlanTextRequestBody {
   createRepoIfMissing?: unknown;
 }
 
+interface ApplyReport {
+  milestones_created: number;
+  milestones_updated?: number;
+  epics_created: number;
+  epics_updated?: number;
+  epics_skipped?: number;
+  issues_created: number;
+  issues_updated?: number;
+  issues_skipped?: number;
+  epic_urls?: string[];
+}
+
 export const plansToProjectRouter = Router();
 
 function parseTruthy(value: unknown): boolean {
@@ -68,6 +80,15 @@ function safeTrim(value: unknown): string | undefined {
 
 function parseJsonOutput<T>(stdout: string): T {
   return JSON.parse(stdout) as T;
+}
+
+function formatApplySummary(report: ApplyReport): string {
+  const milestonesUpdated = report.milestones_updated ?? 0;
+  const epicsUpdated = report.epics_updated ?? 0;
+  const epicsSkipped = report.epics_skipped ?? 0;
+  const issuesUpdated = report.issues_updated ?? 0;
+  const issuesSkipped = report.issues_skipped ?? 0;
+  return `Summary: ${report.milestones_created + milestonesUpdated} milestones synced (${report.milestones_created} created, ${milestonesUpdated} updated), ${report.epics_created + epicsUpdated} epics synced (${report.epics_created} created, ${epicsUpdated} updated, ${epicsSkipped} skipped), ${report.issues_created + issuesUpdated} issues synced (${report.issues_created} created, ${issuesUpdated} updated, ${issuesSkipped} skipped)`;
 }
 
 async function resolveGhpBinary(): Promise<string> {
@@ -126,7 +147,7 @@ function sendPreflightError(res: Response, err: unknown): void {
 }
 
 function buildApplyArgs(planPath: string, req: Request): string[] {
-  const args = ["apply", "-f", planPath];
+  const args = ["apply", "-f", planPath, "--json"];
   if (req.query.dryRun === "true") {
     args.push("--dry-run");
   }
@@ -141,6 +162,15 @@ function buildApplyArgs(planPath: string, req: Request): string[] {
   }
 
   return args;
+}
+
+async function runApply(planPath: string, req: Request): Promise<{ report: ApplyReport; stdout: string; stderr: string }> {
+  const { stdout, stderr } = await runGhp(buildApplyArgs(planPath, req));
+  return {
+    report: parseJsonOutput<ApplyReport>(stdout),
+    stdout: stdout.trim(),
+    stderr: stderr.trim(),
+  };
 }
 
 plansToProjectRouter.post(
@@ -221,11 +251,12 @@ plansToProjectRouter.post(
     const args = buildApplyArgs(req.file.path, req);
 
     try {
-      const { stdout, stderr } = await runGhp(args);
+      const { report, stderr } = await runApply(req.file.path, req);
       res.json({
         success: true,
-        output: stdout.trim(),
-        warnings: stderr.trim() || undefined,
+        output: formatApplySummary(report),
+        report,
+        warnings: stderr || undefined,
       });
     } catch (err: unknown) {
       const execErr = err as { stderr?: string; message?: string };
@@ -272,13 +303,14 @@ async function handlePlanRequest(planPath: string, req: Request<any, any, any, a
       return;
     }
 
-    const { stdout, stderr } = await runGhp(buildApplyArgs(planPath, req));
+    const { report, stderr } = await runApply(planPath, req);
     res.json({
       success: true,
       stage: "apply",
       preflight,
-      output: stdout.trim(),
-      warnings: stderr.trim() || undefined,
+      output: formatApplySummary(report),
+      report,
+      warnings: stderr || undefined,
     });
   } catch (err: unknown) {
     const execErr = err as { stderr?: string; message?: string };
