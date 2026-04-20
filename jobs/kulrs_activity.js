@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const fs = require('fs').promises;
@@ -70,6 +71,19 @@ const CREDS_PATH = process.env.KULRS_CREDS_PATH || '/home/momito/.openclaw/kulrs
 const CRON_LOG_PATH = process.env.KULRS_CRON_LOG_PATH || path.join(WORKSPACE_DIR, 'memory', 'kulrs-cron.log');
 const CRON_LOG_MAX_LINES = Number.parseInt(process.env.KULRS_CRON_LOG_MAX_LINES || '500', 10);
 const MAX_SCHEDULED_TAGS = 6;
+const LIKE_MIN_AGE_MS = 20 * 60 * 1000;
+const LIKE_FEED_LIMIT = 50;
+
+const CALENDAR_TAG_SIGNAL_TERMS = {
+    spring: ['spring', 'blossom', 'bloom', 'petal', 'floral', 'flower', 'garden', 'meadow', 'pastel', 'easter'],
+    summer: ['summer', 'sun', 'sunny', 'beach', 'coast', 'surf', 'citrus', 'fireworks', 'picnic'],
+    autumn: ['autumn', 'fall', 'harvest', 'amber', 'cider', 'pumpkin', 'leaf', 'rust'],
+    winter: ['winter', 'snow', 'frost', 'ice', 'midnight', 'evergreen', 'holiday'],
+    christmas: ['christmas', 'evergreen', 'ornament', 'festive', 'holiday', 'noel'],
+    halloween: ['halloween', 'pumpkin', 'costume', 'spooky', 'candlelight', 'witch'],
+    pink: ['pink', 'rose', 'romance', 'candy', 'valentine', 'floral'],
+    green: ['green', 'emerald', 'shamrock', 'mint', 'parade', 'pub'],
+};
 
 let paletteTagCache = null;
 
@@ -206,7 +220,26 @@ function mapHolidayThemeToTags(label) {
     }
 }
 
-function buildScheduledTagSpecs({ seed, topic, calendar }) {
+function buildSignalCorpus(values) {
+    return values
+        .flatMap((value) => {
+            const normalized = slugifyTag(value).replace(/-/g, ' ').trim();
+            return normalized ? [normalized] : [];
+        })
+        .join(' ');
+}
+
+function shouldApplyCalendarTag(tagSlug, signals = []) {
+    const normalizedTag = slugifyTag(tagSlug);
+    if (!normalizedTag) return false;
+    const signalCorpus = buildSignalCorpus(signals);
+    if (!signalCorpus) return false;
+    if (signalCorpus.includes(normalizedTag.replace(/-/g, ' '))) return true;
+    const signalTerms = CALENDAR_TAG_SIGNAL_TERMS[normalizedTag] || [];
+    return signalTerms.some(term => signalCorpus.includes(term));
+}
+
+function buildScheduledTagSpecs({ seed, topic, calendar, signals = [] }) {
     const specs = [];
     const pushTag = (value, description) => {
         const slug = slugifyTag(value);
@@ -221,14 +254,17 @@ function buildScheduledTagSpecs({ seed, topic, calendar }) {
     const seasonSlug = slugifyTag(calendar.season);
     const seedSlug = slugifyTag(seed);
     const topicSlug = slugifyTag(topic);
+    const contentSignals = [seed, topic, ...signals];
 
-    if (seasonSlug && (seedSlug === seasonSlug || topicSlug === seasonSlug)) {
+    if (seasonSlug && shouldApplyCalendarTag(seasonSlug, contentSignals)) {
         pushTag(calendar.season, `Auto-created seasonal tag for ${calendar.season} palettes.`);
     }
 
     for (const holidayTheme of calendar.holidayThemes) {
         for (const value of mapHolidayThemeToTags(holidayTheme)) {
-            pushTag(value, `Auto-created calendar tag from ${holidayTheme}.`);
+            if (shouldApplyCalendarTag(value, contentSignals)) {
+                pushTag(value, `Auto-created calendar tag from ${holidayTheme}.`);
+            }
         }
     }
 
@@ -747,7 +783,12 @@ async function performCreateImageAction(bot, token, now) {
     const pixels = await extractPixelsFromUrl(photo.url);
     const generated = await generatePaletteFromPixels(pixels, token);
     const calendar = getCalendarThemeContext(now);
-    const tagSpecs = buildScheduledTagSpecs({ seed, topic: word, calendar });
+    const tagSpecs = buildScheduledTagSpecs({
+        seed,
+        topic: word,
+        calendar,
+        signals: [`${word} by ${bot}`, `Inspired by "${seed}" -> "${word}"`, photo.description],
+    });
     const ensuredTags = await ensurePaletteTags(token, tagSpecs);
 
     const postBody = JSON.stringify({
@@ -796,7 +837,12 @@ async function performCreateLlmAction(bot, token, now) {
     const calendar = getCalendarThemeContext(now);
     const generated = await generatePaletteViaLlm({ bot, seed, topic, calendar });
     const assignedColors = buildAssignedColors(generated.colors);
-    const tagSpecs = buildScheduledTagSpecs({ seed, topic, calendar });
+    const tagSpecs = buildScheduledTagSpecs({
+        seed,
+        topic,
+        calendar,
+        signals: [generated.name, generated.description, generated.explanation],
+    });
     const ensuredTags = await ensurePaletteTags(token, tagSpecs);
 
     const postBody = JSON.stringify({
@@ -848,25 +894,74 @@ async function performCreateAction(bot, token, now) {
     return performCreateLlmAction(bot, token, now);
 }
 
-async function performLikeAction(bot, token, activityLog) {
+async function fetchPaletteFeed(sort) {
+    const res = await apiRequest({
+        hostname: 'api.kulrs.com',
+        path: `/palettes?sort=${sort}&limit=${LIKE_FEED_LIMIT}`,
+        method: 'GET',
+        headers: {
+            'Origin': 'https://kulrs.com',
+            'User-Agent': 'Mozilla/5.0',
+        },
+    });
+    return Array.isArray(res.data) ? res.data : [];
+}
+
+function pickRandom(items, random = Math.random) {
+    if (!Array.isArray(items) || items.length === 0) return null;
+    return items[Math.floor(random() * items.length)];
+}
+
+function selectLikeTarget({ bot, activityLog, feeds, nowMs = Date.now(), random = Math.random }) {
     const likedIds = new Set(
-        activityLog.filter(e => e.action === 'LIKE' && e.result === 'ok').map(e => e.target)
+        activityLog
+            .filter(e => e.bot === bot && e.action === 'LIKE' && e.result === 'ok' && typeof e.target === 'string')
+            .map(e => e.target)
     );
-    const twentyMinutesAgo = Date.now() - 20 * 60 * 1000;
-    const options = {
-        hostname: 'api.kulrs.com', path: '/palettes?sort=popular&limit=50', method: 'GET',
-        headers: { 'Origin': 'https://kulrs.com', 'User-Agent': 'Mozilla/5.0' },
+
+    const uniqueCandidates = new Map();
+    const pushPool = (source, palettes) => {
+        for (const palette of Array.isArray(palettes) ? palettes : []) {
+            const createdAt = new Date(palette?.createdAt || '').getTime();
+            if (!palette?.id || likedIds.has(palette.id) || !Number.isFinite(createdAt) || nowMs - createdAt < LIKE_MIN_AGE_MS) {
+                continue;
+            }
+            if (!uniqueCandidates.has(palette.id)) {
+                uniqueCandidates.set(palette.id, { ...palette, _source: source });
+            }
+        }
     };
-    const res = await apiRequest(options);
-    const palettes = res.data;
-    if (!palettes || palettes.length === 0) throw new Error('No palettes returned to like');
 
-    const eligible = palettes.filter(
-        p => !likedIds.has(p.id) && new Date(p.createdAt).getTime() < twentyMinutesAgo
-    );
-    if (eligible.length === 0) throw new Error('No eligible palettes to like');
+    pushPool('recent', feeds?.recent);
+    pushPool('trending', feeds?.trending);
+    pushPool('popular', feeds?.popular);
 
-    const target = eligible[Math.floor(Math.random() * eligible.length)];
+    const candidates = Array.from(uniqueCandidates.values());
+    const recentLowLike = candidates.filter(p => p._source === 'recent' && clampNumber(Number(p.likesCount), 0) <= 2);
+    const recent = candidates.filter(p => p._source === 'recent');
+    const trending = candidates.filter(p => p._source === 'trending');
+    const popular = candidates.filter(p => p._source === 'popular');
+
+    return pickRandom(recentLowLike, random)
+        || pickRandom(recent, random)
+        || pickRandom(trending, random)
+        || pickRandom(popular, random)
+        || null;
+}
+
+async function performLikeAction(bot, token, activityLog) {
+    const [recent, trending, popular] = await Promise.all([
+        fetchPaletteFeed('recent'),
+        fetchPaletteFeed('trending'),
+        fetchPaletteFeed('popular'),
+    ]);
+    const target = selectLikeTarget({
+        bot,
+        activityLog,
+        feeds: { recent, trending, popular },
+    });
+    if (!target) throw new Error('No eligible palettes to like');
+
     const likeBody = JSON.stringify({});
     const postOptions = {
         hostname: 'api.kulrs.com', path: `/palettes/${target.id}/like`, method: 'POST',
@@ -877,6 +972,7 @@ async function performLikeAction(bot, token, activityLog) {
         },
     };
     await apiRequest(postOptions, likeBody);
+    await logInfo(`[${bot}] LIKE selected palette=${target.id} source=${target._source} likes=${clampNumber(Number(target.likesCount), 0)}`);
     return target.id;
 }
 
@@ -962,12 +1058,26 @@ async function main() {
     });
 }
 
-main().catch(async (err) => {
-    const message = `Cron fatal: ${err.message}`;
-    console.error(message);
-    try {
-        await appendCronLog('ERROR', message);
-    } catch (logError) {
-        console.error('Cron fatal logging failed:', logError.message);
-    }
-});
+function isDirectExecution() {
+    const entryPath = process.argv[1];
+    if (!entryPath) return false;
+    return import.meta.url === pathToFileURL(path.resolve(entryPath)).href;
+}
+
+export {
+    buildScheduledTagSpecs,
+    selectLikeTarget,
+    shouldApplyCalendarTag,
+};
+
+if (isDirectExecution()) {
+    main().catch(async (err) => {
+        const message = `Cron fatal: ${err.message}`;
+        console.error(message);
+        try {
+            await appendCronLog('ERROR', message);
+        } catch (logError) {
+            console.error('Cron fatal logging failed:', logError.message);
+        }
+    });
+}
