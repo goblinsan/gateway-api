@@ -25,6 +25,16 @@ const KULRS_LLM_API_KEY = (
     process.env.OPENAI_API_KEY ||
     ''
 ).trim();
+const KULRS_AGENT_SERVICE_URL = (
+    process.env.KULRS_AGENT_SERVICE_URL ||
+    process.env.AGENT_SERVICE_URL ||
+    ''
+).trim().replace(/\/$/, '');
+const KULRS_AGENT_SERVICE_API_KEY = (
+    process.env.KULRS_AGENT_SERVICE_API_KEY ||
+    process.env.AGENT_SERVICE_API_KEY ||
+    ''
+).trim();
 const KULRS_LLM_TIMEOUT_MS = Number.parseInt(process.env.KULRS_LLM_TIMEOUT_MS || '25000', 10);
 const KULRS_LLM_TEMPERATURE = Number.parseFloat(process.env.KULRS_LLM_TEMPERATURE || '0.7');
 const CRON_LOG_RETENTION_DAYS = Number.parseFloat(process.env.KULRS_CRON_LOG_RETENTION_DAYS || '2');
@@ -713,6 +723,67 @@ async function callKulrsLlm(messages, temperature) {
     }
 }
 
+async function callKulrsAgentService({ bot, seed, topic, calendar, messages }) {
+    if (!KULRS_AGENT_SERVICE_URL) {
+        throw new Error('KULRS_AGENT_SERVICE_URL is not configured');
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), clampNumber(KULRS_LLM_TIMEOUT_MS, 25000));
+    const headers = { 'Content-Type': 'application/json' };
+    if (KULRS_AGENT_SERVICE_API_KEY) {
+        headers.Authorization = `Bearer ${KULRS_AGENT_SERVICE_API_KEY}`;
+    }
+
+    try {
+        const prompt = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
+        const response = await fetch(`${KULRS_AGENT_SERVICE_URL}/internal/automation`, {
+            method: 'POST',
+            headers,
+            signal: controller.signal,
+            body: JSON.stringify({
+                request_id: `kulrs-${bot}-${Date.now()}`,
+                source: 'kulrs',
+                job_type: 'palette_generation',
+                agent_id: 'kulrs-palette',
+                prompt,
+                messages,
+                model_preferences: {
+                    preferred: KULRS_LLM_MODEL,
+                    max_tokens: 512,
+                },
+                result_format: {
+                    type: 'json_object',
+                    required_keys: ['name', 'description', 'colors'],
+                },
+                response_mode: 'sync',
+                metadata: {
+                    bot,
+                    seed,
+                    topic,
+                    calendar_summary: calendar.summary,
+                    holiday_notes: calendar.holidayNotes,
+                },
+            }),
+        });
+
+        const bodyText = await response.text().catch(() => '');
+        if (!response.ok) {
+            throw new Error(`Agent-service request failed (${response.status}): ${bodyText.slice(0, 500)}`);
+        }
+        const payload = bodyText ? JSON.parse(bodyText) : {};
+        if (payload && typeof payload.structured_output === 'object' && payload.structured_output !== null) {
+            return payload.structured_output;
+        }
+        if (typeof payload.output === 'string' && payload.output.trim()) {
+            return JSON.parse(stripJsonFences(payload.output));
+        }
+        throw new Error('Agent-service returned no structured palette output');
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 function buildPaletteMessages({ bot, seed, topic, calendar }) {
     const fallbackName = `${topic} by ${bot}`;
     const fallbackDescription = `Palette for ${bot} built from ${seed}, ${topic}, and ${calendar.season} timing.`;
@@ -754,6 +825,16 @@ async function generatePaletteViaLlm({ bot, seed, topic, calendar }) {
     const { fallbackName, fallbackDescription, messages } = buildPaletteMessages({ bot, seed, topic, calendar });
     const temperatures = [clampNumber(KULRS_LLM_TEMPERATURE, 0.7), 0.35];
     let lastError = null;
+
+    if (KULRS_AGENT_SERVICE_URL) {
+        try {
+            const parsed = await callKulrsAgentService({ bot, seed, topic, calendar, messages });
+            return validatePaletteResponse(parsed, fallbackName, fallbackDescription);
+        } catch (error) {
+            lastError = error;
+            await logWarn(`Kulrs agent-service palette fallback to direct LLM: ${error.message}`);
+        }
+    }
 
     for (const temperature of temperatures) {
         try {
