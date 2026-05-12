@@ -39,7 +39,7 @@ interface PreflightResponse {
   };
 }
 
-const PREVIEW_TIMEOUT_MS = 120_000;
+const GHP_TIMEOUT_MS = Number.parseInt(process.env.GHP_TIMEOUT_MS ?? "55000", 10);
 
 interface PlanTextRequestBody {
   planYaml?: unknown;
@@ -79,7 +79,36 @@ function safeTrim(value: unknown): string | undefined {
 }
 
 function parseJsonOutput<T>(stdout: string): T {
-  return JSON.parse(stdout) as T;
+  const text = stdout.trim();
+  if (!text) {
+    throw new Error("Helper returned empty output");
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Some helper executions can include plain-text progress lines before
+    // emitting the JSON payload. Parse the last JSON-looking line as fallback.
+    const lines = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (!line.startsWith("{") && !line.startsWith("[")) {
+        continue;
+      }
+
+      try {
+        return JSON.parse(line) as T;
+      } catch {
+        // keep scanning earlier lines
+      }
+    }
+
+    throw new Error(`Helper returned non-JSON output: ${text.slice(0, 200)}`);
+  }
 }
 
 function formatApplySummary(report: ApplyReport): string {
@@ -108,7 +137,41 @@ async function runGhp(args: string[]) {
   const binary = await resolveGhpBinary();
   return execFileAsync(binary, args, {
     env: { ...process.env },
-    timeout: PREVIEW_TIMEOUT_MS,
+    timeout: GHP_TIMEOUT_MS,
+  });
+}
+
+function isTimeoutError(err: { code?: unknown; message?: unknown; killed?: unknown; signal?: unknown }): boolean {
+  if (err.code === "ETIMEDOUT") {
+    return true;
+  }
+  if (err.killed === true && err.signal === "SIGTERM") {
+    return true;
+  }
+  if (typeof err.message === "string" && err.message.toLowerCase().includes("timed out")) {
+    return true;
+  }
+  return false;
+}
+
+function sendHelperExecutionError(
+  res: Response,
+  err: unknown,
+  fallbackStatus = 500,
+  fallbackSuccess = false,
+): void {
+  const execErr = err as { stderr?: string; stdout?: string; message?: string; code?: unknown; killed?: unknown; signal?: unknown };
+  const timeout = isTimeoutError(execErr);
+  const status = timeout ? 504 : fallbackStatus;
+  const message = timeout
+    ? `Project helper timed out after ${GHP_TIMEOUT_MS}ms`
+    : execErr.stderr?.trim() || execErr.message || "Project helper execution failed";
+
+  res.status(status).json({
+    success: fallbackSuccess,
+    error: message,
+    stderr: execErr.stderr?.trim() || undefined,
+    stdout: execErr.stdout?.trim() || undefined,
   });
 }
 
@@ -141,9 +204,7 @@ function sendPreflightError(res: Response, err: unknown): void {
       // fall through to generic error handling
     }
   }
-  res.status(500).json({
-    error: execErr.stderr?.trim() || execErr.message,
-  });
+  sendHelperExecutionError(res, err, 500, false);
 }
 
 function buildApplyArgs(planPath: string, req: Request): string[] {
@@ -186,11 +247,15 @@ plansToProjectRouter.post(
       const { stdout } = await runGhp(["validate", "-f", req.file.path]);
       res.json({ valid: true, output: stdout.trim() });
     } catch (err: unknown) {
-      const execErr = err as { stderr?: string; message?: string };
-      res.status(422).json({
-        valid: false,
-        error: execErr.stderr?.trim() || execErr.message,
-      });
+      const execErr = err as { stderr?: string; message?: string; code?: unknown; killed?: unknown; signal?: unknown; stdout?: string };
+      if (isTimeoutError(execErr)) {
+        sendHelperExecutionError(res, err, 422, false);
+      } else {
+        res.status(422).json({
+          valid: false,
+          error: execErr.stderr?.trim() || execErr.message,
+        });
+      }
     } finally {
       await fs.unlink(req.file.path).catch(() => {});
     }
@@ -259,11 +324,7 @@ plansToProjectRouter.post(
         warnings: stderr || undefined,
       });
     } catch (err: unknown) {
-      const execErr = err as { stderr?: string; message?: string };
-      res.status(500).json({
-        success: false,
-        error: execErr.stderr?.trim() || execErr.message,
-      });
+      sendHelperExecutionError(res, err, 500, false);
     } finally {
       await fs.unlink(req.file.path).catch(() => {});
     }
@@ -313,11 +374,7 @@ async function handlePlanRequest(planPath: string, req: Request<any, any, any, a
       warnings: stderr || undefined,
     });
   } catch (err: unknown) {
-    const execErr = err as { stderr?: string; message?: string };
-    res.status(500).json({
-      success: false,
-      error: execErr.stderr?.trim() || execErr.message,
-    });
+    sendHelperExecutionError(res, err, 500, false);
   }
 }
 
