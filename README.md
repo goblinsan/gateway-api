@@ -438,6 +438,7 @@ npm test
 | `GATEWAY_API_KEY` | unset | Optional API key for `/plans-to-project/*` endpoints; accepted via `X-API-Key` or `Authorization: Bearer` |
 | `PUBLIC_BASE_URL` | `https://api.jimmothy.site` | Public base URL emitted in `/openapi.json` |
 | `STORYTIME_BASE_URL` | unset | Internal StoryTime service origin used by `/api/storytime/*` |
+| `STORYTIME_HOST_HEADER` | unset | Optional Host header for routing StoryTime calls through a local nginx vhost |
 | `STORYTIME_TIMEOUT_MS` | `15000` | Upstream StoryTime request timeout |
 | `GHP_BINARY` | `ghp` | Path to gh-project-helper binary |
 | `GHP_HOST_BIN_DIR` | `/home/jimmothy/.local/bin` | Host directory mounted into the container for a runner-managed `ghp` override |

@@ -1,3 +1,6 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+
 type QueryValue = string | number | boolean | null | undefined;
 
 interface RequestOptions {
@@ -27,11 +30,17 @@ export class StorytimeUpstreamError extends Error {
 export class StorytimeClient {
   private readonly baseUrl?: string;
   private readonly timeoutMs: number;
+  private readonly hostHeader?: string;
 
-  constructor(baseUrl = process.env.STORYTIME_BASE_URL, timeoutMs = parseInt(process.env.STORYTIME_TIMEOUT_MS ?? "15000", 10)) {
+  constructor(
+    baseUrl = process.env.STORYTIME_BASE_URL,
+    timeoutMs = parseInt(process.env.STORYTIME_TIMEOUT_MS ?? "15000", 10),
+    hostHeader = process.env.STORYTIME_HOST_HEADER,
+  ) {
     const trimmed = baseUrl?.trim();
     this.baseUrl = trimmed ? trimmed.replace(/\/+$/, "") : undefined;
     this.timeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15000;
+    this.hostHeader = hostHeader?.trim() || undefined;
   }
 
   async get<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -72,25 +81,18 @@ export class StorytimeClient {
 
   private async request<T>(method: string, path: string, options: RequestOptions): Promise<T> {
     const url = this.buildUrl(path, options.query);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    timeout.unref?.();
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: options.body === undefined ? undefined : { "content-type": "application/json" },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: controller.signal,
-      });
-
-      const text = await response.text();
+      const response = this.hostHeader
+        ? await this.nodeRequest(method, url, options)
+        : await this.fetchRequest(method, url, options);
+      const { status, text } = response;
       const parsed = parseJson(text);
 
-      if (!response.ok) {
+      if (status < 200 || status >= 300) {
         throw new StorytimeUpstreamError(
-          response.status,
-          extractErrorMessage(parsed) ?? `StoryTime request failed with HTTP ${response.status}`,
+          status,
+          extractErrorMessage(parsed) ?? `StoryTime request failed with HTTP ${status}`,
           parsed,
         );
       }
@@ -106,39 +108,30 @@ export class StorytimeClient {
           ? err.message
           : "StoryTime request failed";
       throw new StorytimeUpstreamError(502, message);
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
   private async requestText(method: string, path: string, options: RequestOptions): Promise<{ text: string; contentType?: string }> {
     const url = this.buildUrl(path, options.query);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    timeout.unref?.();
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: options.body === undefined ? undefined : { "content-type": "application/json" },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: controller.signal,
-      });
+      const response = this.hostHeader
+        ? await this.nodeRequest(method, url, options)
+        : await this.fetchRequest(method, url, options);
+      const { status, text, contentType } = response;
 
-      const text = await response.text();
-
-      if (!response.ok) {
+      if (status < 200 || status >= 300) {
         const parsed = parseJson(text);
         throw new StorytimeUpstreamError(
-          response.status,
-          extractErrorMessage(parsed) ?? `StoryTime request failed with HTTP ${response.status}`,
+          status,
+          extractErrorMessage(parsed) ?? `StoryTime request failed with HTTP ${status}`,
           parsed,
         );
       }
 
       return {
         text,
-        contentType: response.headers.get("content-type") ?? undefined,
+        contentType,
       };
     } catch (err) {
       if (err instanceof StorytimeUpstreamError || err instanceof StorytimeConfigError) {
@@ -150,9 +143,74 @@ export class StorytimeClient {
           ? err.message
           : "StoryTime request failed";
       throw new StorytimeUpstreamError(502, message);
+    }
+  }
+
+  private async fetchRequest(method: string, url: URL, options: RequestOptions): Promise<{ status: number; text: string; contentType?: string }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    timeout.unref?.();
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: options.body === undefined ? undefined : { "content-type": "application/json" },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: controller.signal,
+      });
+      return {
+        status: response.status,
+        text: await response.text(),
+        contentType: response.headers.get("content-type") ?? undefined,
+      };
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async nodeRequest(method: string, url: URL, options: RequestOptions): Promise<{ status: number; text: string; contentType?: string }> {
+    const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+    const headers: Record<string, string | number> = {
+      host: this.hostHeader!,
+    };
+    if (body !== undefined) {
+      headers["content-type"] = "application/json";
+      headers["content-length"] = Buffer.byteLength(body);
+    }
+
+    return new Promise((resolve, reject) => {
+      const request = (url.protocol === "https:" ? httpsRequest : httpRequest)({
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method,
+        headers,
+        timeout: this.timeoutMs,
+      }, (response) => {
+        response.setEncoding("utf8");
+        let text = "";
+        response.on("data", (chunk: string) => {
+          text += chunk;
+        });
+        response.on("end", () => {
+          resolve({
+            status: response.statusCode ?? 0,
+            text,
+            contentType: response.headers["content-type"],
+          });
+        });
+      });
+
+      request.on("timeout", () => {
+        request.destroy(new Error(`StoryTime request timed out after ${this.timeoutMs}ms`));
+      });
+      request.on("error", reject);
+      if (body !== undefined) {
+        request.write(body);
+      }
+      request.end();
+    });
   }
 }
 
