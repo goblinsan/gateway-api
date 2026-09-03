@@ -5,6 +5,8 @@ import { plansToProjectRouter } from "./routes/plans-to-project.js";
 import { createWorkflowRouter } from "./routes/workflows.js";
 import { createInternalWorkflowRouter } from "./routes/internal-workflows.js";
 import { createAssetsRouter } from "./routes/assets.js";
+import { createOpenApiRouter } from "./routes/openapi.js";
+import { createStorytimeRouter } from "./routes/storytime.js";
 import { GitHubAssetWriter, type AssetWriter } from "./github/asset-writer.js";
 import { WorkflowStore } from "./store/workflow-store.js";
 
@@ -114,7 +116,7 @@ function renderPrivacyPolicyHtml(): string {
       <p>Last updated: March 26, 2026</p>
 
       <p>
-        This service is operated by Jimmothy for personal workflow automation and GitHub project planning.
+        This service is operated by Jimmothy for personal workflow automation, GitHub project planning, and StoryTime universe management.
         It is intended for a limited set of authorized users and integrations.
       </p>
 
@@ -122,12 +124,14 @@ function renderPrivacyPolicyHtml(): string {
       <ul>
         <li>YAML planning content submitted to the <code>/plans-to-project</code> endpoints.</li>
         <li>Repository names, project titles, milestone names, epic titles, issue titles, labels, and assignees contained in that submitted plan.</li>
+        <li>StoryTime universe, character, bestiary, derivative work, draft review, and canon-search content submitted to the <code>/api/storytime</code> endpoints.</li>
         <li>Standard request metadata such as timestamps, IP address, and user agent that may appear in normal server and reverse-proxy logs.</li>
       </ul>
 
       <h2>How Data Is Used</h2>
       <ul>
         <li>To validate project plans and create or update GitHub projects, repositories, milestones, epics, and issues when explicitly requested.</li>
+        <li>To search, create, revise, review, and promote StoryTime universe encyclopedia and derivative-work content when explicitly requested.</li>
         <li>To resolve repository matches during preflight and to support authenticated automation workflows.</li>
         <li>To operate, secure, debug, and improve the service.</li>
       </ul>
@@ -135,6 +139,7 @@ function renderPrivacyPolicyHtml(): string {
       <h2>How Data Is Shared</h2>
       <p>
         Submitted planning data may be sent to GitHub through the configured helper tool in order to create or update GitHub resources.
+        StoryTime action content may be sent to local StoryTime services configured behind this gateway.
         Requests may also transit Cloudflare because this service is exposed through Cloudflare Tunnel and related Cloudflare security products.
         Data is not sold.
       </p>
@@ -179,8 +184,10 @@ export function createApp(store?: WorkflowStore, assetWriter?: AssetWriter) {
     res.type("html").send(renderPrivacyPolicyHtml());
   });
 
+  app.use("/openapi.json", createOpenApiRouter());
   app.use("/api/jobs", requireGatewayApiKey, createJobsRouter());
   app.use("/plans-to-project", requireGatewayApiKey, plansToProjectRouter);
+  app.use("/api/storytime", requireGatewayApiKey, createStorytimeRouter());
   app.use("/api/workflows", requireGatewayApiKey, createWorkflowRouter(workflowStore));
   app.use("/api/assets", requireGatewayApiKey, createAssetsRouter(resolvedAssetWriter));
   app.use("/internal/workflows", createInternalWorkflowRouter(workflowStore));

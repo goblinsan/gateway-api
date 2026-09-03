@@ -53,9 +53,13 @@ Returns `{ "status": "ok" }`.
 
 Returns a public HTML privacy policy page for `api.jimmothy.site`. This endpoint is intentionally unprotected so it can be referenced by external integrations such as GPT Actions.
 
+### `GET /openapi.json`
+
+Returns the public OpenAPI schema for Custom GPT Actions. This endpoint is intentionally unprotected so the GPT builder can import the schema. The action endpoints described in the schema still require the configured gateway API key.
+
 ### `POST /plans-to-project/validate`
 
-Validates a plan YAML file against the `ghp` schema. All `/plans-to-project/*` and `/api/workflows/*` endpoints require an API key when `GATEWAY_API_KEY` is configured. Present it with either `X-API-Key: <key>` or `Authorization: Bearer <key>`.
+Validates a plan YAML file against the `ghp` schema. All `/plans-to-project/*`, `/api/storytime/*`, and `/api/workflows/*` endpoints require an API key when `GATEWAY_API_KEY` is configured. Present it with either `X-API-Key: <key>` or `Authorization: Bearer <key>`.
 
 - **Body**: `multipart/form-data` with a `plan` field containing a `.yaml`/`.yml` file
 - **200**: `{ "valid": true, "output": "..." }`
@@ -163,6 +167,41 @@ Behavior matches `/plans-to-project/plan`:
 - Applies immediately on the exact-match happy path.
 
 Successful apply responses include the same `report` payload described above so callers can distinguish creates from updates without scraping CLI text.
+
+### StoryTime GPT Actions
+
+StoryTime is exposed through the gateway as a curated action surface under `/api/storytime/*`. These endpoints are intended for Custom GPT/mobile workflows that need to find, create, review, and revise universe content without exposing the StoryTime service directly.
+
+- **Auth**: requires `X-API-Key` or `Authorization: Bearer` when `GATEWAY_API_KEY` is configured
+- **Backend**: set `STORYTIME_BASE_URL` to the internal StoryTime service origin
+- **Schema**: import `GET /openapi.json` in the GPT builder
+
+Supported actions include:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/storytime/projects` | List universe projects with optional `q`, `type`, and `limit` filters |
+| `POST /api/storytime/projects` | Create a universe project |
+| `GET /api/storytime/projects/:projectId` | Fetch a compact project summary |
+| `PATCH /api/storytime/projects/:projectId` | Update project metadata |
+| `GET /api/storytime/projects/:projectId/encyclopedia` | Fetch counts and recent encyclopedia updates |
+| `GET /api/storytime/projects/:projectId/canon/search?q=...` | Search encyclopedia canon across characters, locations, factions, timeline, bestiary, and other catalog entries |
+| `GET /api/storytime/projects/:projectId/characters` | List characters in a universe |
+| `POST /api/storytime/projects/:projectId/characters/upsert` | Create or update a character by `id`, `characterId`, or matching `name` |
+| `GET /api/storytime/projects/:projectId/bestiary` | List bestiary entries in a universe |
+| `POST /api/storytime/projects/:projectId/bestiary/upsert` | Create or update a bestiary entry by `id`, `bestiaryId`, or matching `name` |
+| `GET /api/storytime/projects/:projectId/derivatives` | List derivative works such as stories, campaigns, screenplays, storyboards, and game concepts |
+| `POST /api/storytime/projects/:projectId/derivatives` | Create a derivative work |
+| `PATCH /api/storytime/derivatives/:derivativeId` | Update a derivative work |
+| `POST /api/storytime/derivatives/:derivativeId/compose` | Compose prose for a derivative work through StoryTime |
+| `POST /api/storytime/projects/:projectId/compose` | Compose all story chapters in a universe, optionally scoped by `parentStoryId` |
+| `GET /api/storytime/derivatives/:derivativeId/review-dossier` | Fetch a self-contained review dossier for a story or chapter derivative; `?format=raw` returns Markdown |
+| `GET /api/storytime/projects/:projectId/drafts` | List generated drafts |
+| `GET /api/storytime/drafts/:draftId` | Review a generated draft |
+| `POST /api/storytime/drafts/:draftId/status` | Mark a generated draft as `generated`, `accepted`, or `rejected` |
+| `POST /api/storytime/drafts/:draftId/promote` | Promote an accepted draft into canon |
+| `POST /api/storytime/projects/:projectId/exploration/preview` | Preview autonomous universe-expansion tasks |
+| `POST /api/storytime/projects/:projectId/exploration/run` | Spawn autonomous universe-expansion tasks through StoryTime |
 
 ### `POST /api/assets`
 
@@ -397,6 +436,9 @@ npm test
 |---|---|---|
 | `PORT` | `3000` | Server listen port |
 | `GATEWAY_API_KEY` | unset | Optional API key for `/plans-to-project/*` endpoints; accepted via `X-API-Key` or `Authorization: Bearer` |
+| `PUBLIC_BASE_URL` | `https://api.jimmothy.site` | Public base URL emitted in `/openapi.json` |
+| `STORYTIME_BASE_URL` | unset | Internal StoryTime service origin used by `/api/storytime/*` |
+| `STORYTIME_TIMEOUT_MS` | `15000` | Upstream StoryTime request timeout |
 | `GHP_BINARY` | `ghp` | Path to gh-project-helper binary |
 | `GHP_HOST_BIN_DIR` | `/home/jimmothy/.local/bin` | Host directory mounted into the container for a runner-managed `ghp` override |
 | `CHAT_PLATFORM_API_BASE_URL` | `http://localhost:3000` | Base URL for the chat platform API |
