@@ -193,6 +193,7 @@ Supported actions include:
 | `GET /api/storytime/projects/:projectId/derivatives` | List derivative works such as stories, campaigns, screenplays, storyboards, and game concepts |
 | `POST /api/storytime/projects/:projectId/derivatives` | Create a derivative work |
 | `PATCH /api/storytime/derivatives/:derivativeId` | Update a derivative work |
+| `PUT /api/storytime/derivatives/:derivativeId/content` | Replace a chapter or derivative's content exactly, preserving existing metadata and returning hashes for verification |
 | `POST /api/storytime/derivatives/:derivativeId/compose` | Compose prose for a derivative work through StoryTime |
 | `POST /api/storytime/projects/:projectId/compose` | Compose all story chapters in a universe, optionally scoped by `parentStoryId` |
 | `GET /api/storytime/derivatives/:derivativeId/review-dossier` | Fetch a self-contained review dossier for a story or chapter derivative; `?format=raw` returns Markdown |

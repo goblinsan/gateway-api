@@ -180,6 +180,80 @@ describe("StoryTime gateway actions", () => {
     });
   });
 
+  it("replaces derivative content exactly while preserving existing metadata", async () => {
+    const replacement = "New chapter text.\n\nNo Slipway 9 material remains.";
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        id: "derivative-1",
+        projectId: "project-1",
+        type: "story",
+        title: "Chapter One",
+        content: "Old chapter text with Slipway 9.",
+        metadata: {
+          parentStoryId: "story-1",
+          structure: { sections: [{ title: "Opening" }] },
+          wordCount: 6,
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        id: "derivative-1",
+        projectId: "project-1",
+        type: "story",
+        title: "Chapter One",
+        status: "in_review",
+        content: replacement,
+        metadata: {
+          parentStoryId: "story-1",
+          structure: { sections: [{ title: "Opening" }] },
+          wordCount: 8,
+          exactContentReplacement: true,
+        },
+      }));
+
+    const res = await request(app)
+      .put("/api/storytime/derivatives/derivative-1/content")
+      .send({
+        content: replacement,
+        status: "in_review",
+        metadata: { reviewedBy: "mobile-gpt" },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.exactContentSaved).toBe(true);
+    expect(res.body.contentLength).toBe(replacement.length);
+    expect(res.body.savedContentLength).toBe(replacement.length);
+    expect(res.body.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(res.body.savedContentSha256).toBe(res.body.contentSha256);
+
+    const [getUrl, getInit] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(getUrl.toString()).toBe("http://storytime.local/api/derivatives/derivative-1");
+    expect(getInit.method).toBe("GET");
+
+    const [putUrl, putInit] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(putUrl.toString()).toBe("http://storytime.local/api/derivatives/derivative-1");
+    expect(putInit.method).toBe("PUT");
+    const body = JSON.parse(String(putInit.body));
+    expect(body.content).toBe(replacement);
+    expect(body.status).toBe("in_review");
+    expect(body.metadata).toMatchObject({
+      parentStoryId: "story-1",
+      structure: { sections: [{ title: "Opening" }] },
+      reviewedBy: "mobile-gpt",
+      exactContentReplacement: true,
+    });
+    expect(body.source).toBe("chatgpt-mobile-gpt");
+  });
+
+  it("rejects exact derivative content replacement without string content", async () => {
+    const res = await request(app)
+      .put("/api/storytime/derivatives/derivative-1/content")
+      .send({ content: null });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("content is required and must be a string");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards derivative review dossiers as JSON by default", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({
       markdown: "# Review Dossier\n\nCurrent draft prose.",
@@ -217,6 +291,8 @@ describe("StoryTime gateway actions", () => {
     expect(res.status).toBe(200);
     expect(res.body.paths["/api/storytime/projects/{projectId}/compose"].post.operationId).toBe("composeStorytimeProject");
     expect(res.body.paths["/api/storytime/derivatives/{derivativeId}/review-dossier"].get.operationId).toBe("getStorytimeReviewDossier");
+    expect(res.body.paths["/api/storytime/derivatives/{derivativeId}/content"].put.operationId).toBe("replaceStorytimeDerivativeContent");
+    expect(res.body.paths["/api/storytime/derivatives/{derivativeId}/compose"].post.summary).toContain("Do not use for exact");
   });
 
   it("returns a clear configuration error when StoryTime has not been wired", async () => {

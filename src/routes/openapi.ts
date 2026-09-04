@@ -95,6 +95,31 @@ function buildOpenApiDocument() {
           },
           required: ["type", "title"],
         },
+        StorytimeDerivativeContentReplacementInput: {
+          type: "object",
+          description: "Exact-content editor payload. Use this only after the replacement prose is already written; this endpoint saves the provided content literally and does not invoke the composer.",
+          properties: {
+            content: {
+              type: "string",
+              description: "The full replacement text to save exactly as the derivative/chapter content. Do not summarize, append old text, or ask StoryTime to regenerate it.",
+            },
+            status: {
+              type: "string",
+              enum: ["draft", "in_progress", "completed", "accepted", "in_review", "archived"],
+              description: "Optional derivative status to set after saving the exact content.",
+            },
+            metadata: {
+              type: "object",
+              description: "Optional metadata patch. Existing derivative metadata is preserved and this object is merged over it.",
+            },
+            sourceCanonReferences: {
+              type: "array",
+              items: {},
+              description: "Optional replacement canon-reference list.",
+            },
+          },
+          required: ["content"],
+        },
       },
     },
     security: [{ GatewayApiKey: [] }],
@@ -243,16 +268,26 @@ function buildOpenApiDocument() {
       "/api/storytime/derivatives/{derivativeId}": {
         patch: {
           operationId: "updateStorytimeDerivative",
-          summary: "Update a derivative work.",
+          summary: "Update derivative metadata, title, description, status, or other fields. For exact chapter prose replacement, prefer replaceStorytimeDerivativeContent.",
           parameters: [pathParam("derivativeId")],
           requestBody: jsonBody({ type: "object", additionalProperties: true }),
+          responses: basicResponses(),
+        },
+      },
+      "/api/storytime/derivatives/{derivativeId}/content": {
+        put: {
+          operationId: "replaceStorytimeDerivativeContent",
+          summary: "Save exact replacement text for a chapter or derivative without invoking StoryTime composition.",
+          description: "Use this when the user provides or approves replacement prose. This is a literal editor endpoint, not a generative composer. The response includes exactContentSaved plus SHA-256 hashes and lengths so the caller can verify StoryTime stored the same content that was submitted.",
+          parameters: [pathParam("derivativeId")],
+          requestBody: refBody("#/components/schemas/StorytimeDerivativeContentReplacementInput"),
           responses: basicResponses(),
         },
       },
       "/api/storytime/derivatives/{derivativeId}/compose": {
         post: {
           operationId: "composeStorytimeDerivative",
-          summary: "Compose prose for a derivative work using StoryTime's composer.",
+          summary: "Generate or regenerate prose for a derivative work using StoryTime's composer. Do not use for exact user-authored replacements.",
           parameters: [pathParam("derivativeId")],
           requestBody: jsonBody({
             type: "object",

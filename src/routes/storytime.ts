@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { createHash } from "node:crypto";
 import { StorytimeClient, StorytimeConfigError, StorytimeUpstreamError } from "../clients/storytime-client.js";
 
 type JsonObject = Record<string, unknown>;
@@ -224,6 +225,61 @@ export function createStorytimeRouter(client = new StorytimeClient()): Router {
     }
   });
 
+  router.put("/derivatives/:derivativeId/content", async (req: Request<DerivativeParams, unknown, JsonObject>, res) => {
+    try {
+      const content = req.body.content;
+      if (typeof content !== "string") {
+        res.status(400).json({ error: "content is required and must be a string" });
+        return;
+      }
+
+      const existing = await client.get<JsonObject>(`/api/derivatives/${encodeURIComponent(req.params.derivativeId)}`);
+      const existingMetadata = getObject(existing.metadata);
+      const requestedMetadata = getObject(req.body.metadata);
+      const wordCount = countWords(content);
+      const metadata = {
+        ...existingMetadata,
+        ...requestedMetadata,
+        wordCount,
+        exactContentReplacement: true,
+        exactContentReplacementAt: new Date().toISOString(),
+      };
+
+      const updatePayload: JsonObject = {
+        content,
+        metadata,
+      };
+
+      const status = stringValue(req.body.status);
+      if (status) {
+        updatePayload.status = status;
+      }
+
+      if (Array.isArray(req.body.sourceCanonReferences)) {
+        updatePayload.sourceCanonReferences = req.body.sourceCanonReferences;
+      }
+
+      const updated = await client.put<JsonObject>(
+        `/api/derivatives/${encodeURIComponent(req.params.derivativeId)}`,
+        withSource(updatePayload),
+      );
+      const savedContent = typeof updated.content === "string" ? updated.content : "";
+
+      res.json({
+        derivativeId: req.params.derivativeId,
+        exactContentSaved: savedContent === content,
+        contentLength: content.length,
+        savedContentLength: savedContent.length,
+        contentSha256: sha256(content),
+        savedContentSha256: sha256(savedContent),
+        wordCount,
+        derivative: summarizeDerivative(updated),
+      });
+    } catch (err) {
+      sendStorytimeError(res, err);
+    }
+  });
+
   router.post("/derivatives/:derivativeId/compose", async (req: Request<DerivativeParams, unknown, JsonObject>, res) => {
     try {
       const result = await client.post<JsonObject>("/api/composer/chapter", withSource({
@@ -357,6 +413,15 @@ function parsePositiveInt(value: unknown, fallback: number, max: number): number
 
 function getObject(value: unknown): JsonObject {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
+}
+
+function countWords(value: string): number {
+  const words = value.trim().match(/\S+/g);
+  return words ? words.length : 0;
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function withSource<T>(body: T): T & { source: string } {
