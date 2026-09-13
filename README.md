@@ -168,7 +168,20 @@ Behavior matches `/plans-to-project/plan`:
 
 Successful apply responses include the same `report` payload described above so callers can distinguish creates from updates without scraping CLI text.
 
-### StoryTime GPT Actions
+### Contesora GPT Actions
+
+StoryTime is now Contesora, and its work model has outgrown the `/api/storytime/*` surface below. A Custom GPT that reviews, edits and creates work should use the Contesora actions under `/api/contesora/*`.
+
+- **Schema**: import `GET /openapi/contesora.json` in the GPT builder (not `/openapi.json`, which stays as it was for the project-helper GPT)
+- **Auth**: the same gateway key as below
+- **Backend**: the same `STORYTIME_BASE_URL`
+- **Start here**: the GPT calls `getContesoraGuide` (`GET /api/contesora/guide`) first. Action descriptions are capped at 300 characters, so how the actions fit together -- universes and direction, canon records, works with forms, audiences and parts, adaptations and their brief, arcs and acts, pages and plates, versions of every edit, and proposals from Contesora's own agent -- lives in the guide.
+
+The surface is built to OpenAI's GPT Action limits and a test holds it to them: under 30 operations, 300 characters per operation summary or description, 700 per parameter description. Responses stay under 100,000 characters (long text is truncated with a flag), and every call is a single round trip well inside 45 seconds: drafting by Contesora's agent is asynchronous (`askContesora`, then poll `getProposal`). `x-openai-isConsequential` is set so only `deleteWork` and `resolveProposal` always ask the author to confirm; writes that Contesora keeps a version of, or that only add, can be allowed once.
+
+After changing the schema, re-import it in the GPT builder: a GPT keeps the copy it imported.
+
+### StoryTime GPT Actions (superseded)
 
 StoryTime is exposed through the gateway as a curated action surface under `/api/storytime/*`. These endpoints are intended for Custom GPT/mobile workflows that need to find, create, review, and revise universe content without exposing the StoryTime service directly.
 

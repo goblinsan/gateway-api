@@ -59,6 +59,10 @@ export class StorytimeClient {
     return this.request<T>("PATCH", path, { ...options, body });
   }
 
+  async delete<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>("DELETE", path, options);
+  }
+
   async put<T>(path: string, body?: unknown, options: Omit<RequestOptions, "body"> = {}): Promise<T> {
     return this.request<T>("PUT", path, { ...options, body });
   }

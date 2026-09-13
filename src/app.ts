@@ -7,6 +7,8 @@ import { createInternalWorkflowRouter } from "./routes/internal-workflows.js";
 import { createAssetsRouter } from "./routes/assets.js";
 import { createOpenApiRouter } from "./routes/openapi.js";
 import { createStorytimeRouter } from "./routes/storytime.js";
+import { createContesoraRouter } from "./routes/contesora.js";
+import { buildContesoraOpenApiDocument } from "./routes/contesora-openapi.js";
 import { GitHubAssetWriter, type AssetWriter } from "./github/asset-writer.js";
 import { WorkflowStore } from "./store/workflow-store.js";
 
@@ -188,6 +190,13 @@ export function createApp(store?: WorkflowStore, assetWriter?: AssetWriter) {
   app.use("/api/jobs", requireGatewayApiKey, createJobsRouter());
   app.use("/plans-to-project", requireGatewayApiKey, plansToProjectRouter);
   app.use("/api/storytime", requireGatewayApiKey, createStorytimeRouter());
+  // Contesora's own action surface and the schema a Custom GPT imports for it.
+  // Separate from /openapi.json so the project-helper GPT's schema is unchanged
+  // and each stays under the 30 operations a GPT Action can hold.
+  app.get("/openapi/contesora.json", (_req, res) => {
+    res.json(buildContesoraOpenApiDocument());
+  });
+  app.use("/api/contesora", requireGatewayApiKey, createContesoraRouter());
   app.use("/api/workflows", requireGatewayApiKey, createWorkflowRouter(workflowStore));
   app.use("/api/assets", requireGatewayApiKey, createAssetsRouter(resolvedAssetWriter));
   app.use("/internal/workflows", createInternalWorkflowRouter(workflowStore));
